@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+ <title id="title">The Orpheum Observatory, investigation room</title><desc id="desc">An explorable observatory chamber with a foyer, telescope dome, archive desk, power panel, and stairwell.</desc>
+ <defs>
+  <linearGradient id="wall" x2="0" y2="1"><stop stop-color="#202a3d"/><stop offset=".68" stop-color="#111622"/><stop offset="1" stop-color="#171521"/></linearGradient>
+  <linearGradient id="floor" x2="0" y2="1"><stop stop-color="#25243a"/><stop offset="1" stop-color="#090d15"/></linearGradient>
+  <linearGradient id="glass" x2="1" y2="1"><stop stop-color="#172d4a"/><stop offset=".55" stop-color="#304263"/><stop offset="1" stop-color="#111c32"/></linearGradient>
+  <linearGradient id="beam" x2="0" y2="1"><stop stop-color="#b2a2ff" stop-opacity=".35"/><stop offset="1" stop-color="#9b8aff" stop-opacity="0"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="13"/></filter>
+ </defs>
+ <rect width="1200" height="640" fill="#0a0d14"/><path d="M0 0h1200v450H0z" fill="url(#wall)"/>
+ <path d="M0 0h245v465H0z" fill="#171923"/><path d="M33 65q76-100 152 0v315H33z" fill="#0d121b" stroke="#58617b" stroke-width="5"/><path d="M51 74q58-72 116 0v255H51z" fill="url(#glass)" stroke="#9b9bb8" stroke-opacity=".45" stroke-width="2"/>
+ <g fill="#cde6ff"><circle cx="82" cy="119" r="2"/><circle cx="142" cy="164" r="2"/><circle cx="106" cy="217" r="1.5"/><circle cx="72" cy="278" r="1.5"/><circle cx="152" cy="92" r="1"/></g><circle cx="132" cy="210" r="27" fill="#b09bff" opacity=".14" filter="url(#glow)"/><circle cx="132" cy="210" r="17" fill="#e1d4ff" opacity=".48"/>
+ <path d="M275 0q150 20 300 190v271H275z" fill="#111725" stroke="#4e5a73" stroke-width="6"/><path d="M309 24q125 12 229 157v214H309z" fill="#111b2e" stroke="#777e9c" stroke-opacity=".55" stroke-width="3"/>
+ <path d="M385 0h67v257h-67z" fill="url(#glass)" stroke="#9fa4bd" stroke-opacity=".7" stroke-width="3"/><path d="M389 8h59v245l-59-11z" fill="#283e58"/><circle cx="419" cy="86" r="3" fill="#d5e9ff"/><circle cx="433" cy="142" r="2" fill="#d5e9ff"/>
+ <path d="M565 0h6v465h-6z" fill="#737a91" opacity=".45"/><path d="M578 0h5v465h-5z" fill="#090c13"/>
+ <path d="M601 0h339v463H601z" fill="#151925"/><path d="M626 60q140-115 275 0v325H626z" fill="#10151f" stroke="#46516a" stroke-width="4"/><path d="M665 337h182l-25 89H688z" fill="#2d2931" stroke="#6c5b69" stroke-width="3"/><path d="M686 330l20-16h113l21 16z" fill="#40383d"/><path d="M728 307h74" stroke="#8fb8d2" stroke-width="4"/><path d="M745 307v-56" stroke="#c4a977" stroke-width="4"/><path d="M737 253h18l-6-31h-8z" fill="#8f8062"/><path d="M746 252l-19 121h70l-35-121z" fill="url(#beam)"/>
+ <circle cx="880" cy="128" r="44" fill="#10141d" stroke="#8590a9" stroke-width="5"/><path d="M880 91v36l22 13" fill="none" stroke="#d9d5e8" stroke-width="3"/><circle cx="880" cy="128" r="4" fill="#d6b8ff"/>
+ <path d="M947 0h253v463H947z" fill="#121720"/><path d="M985 69h177v125H985z" fill="#202838" stroke="#72809b" stroke-width="3"/><path d="M1002 88h143v86h-143z" fill="#0c1119"/><path d="M1010 102h127m-127 16h127m-127 16h127m-127 16h127" stroke="#59647a" stroke-width="5"/>
+ <path d="M1025 246h140v181h-140z" fill="#171a24" stroke="#5c6274" stroke-width="4"/><path d="M1048 271h93v14h-93zm0 31h93v14h-93zm0 31h93v14h-93z" fill="#313849"/><path d="M1031 431l134-4" stroke="#8f8ba6" stroke-width="3"/>
+ <path d="M0 454h1200v186H0z" fill="url(#floor)"/><path d="M0 459l1200 1M220 640l180-182m392 182L640 459m-410 181 405-181m554 181L640 459" stroke="#5d5678" stroke-opacity=".35" stroke-width="3"/>
+ <path d="M0 453h1200" stroke="#9c91bd" stroke-opacity=".5" stroke-width="5"/><path d="M260 0v456m340-456v456m339-456v456" stroke="#8990a5" stroke-opacity=".18" stroke-width="8"/>
+ <path d="M926 465v-46h205v46m-190-9v-39m31 39v-39m31 39v-39m31 39v-39m31 39v-39" fill="none" stroke="#788096" stroke-width="4"/><path d="M951 420l166-70m-166 92 166-70m-166 92 166-70" stroke="#687087" stroke-width="5"/>
+ <rect x="0" y="0" width="1200" height="640" fill="none" stroke="#a5a2d2" stroke-opacity=".22" stroke-width="3"/>
+</svg>

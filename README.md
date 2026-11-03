@@ -24,7 +24,8 @@ No end-user authentication or external database secrets are required. Cloudflare
 
 - Each room code maps to one Durable Object with SQLite-backed storage and a hibernating WebSocket interface.
 - Player tokens are generated server-side and kept in that browser tab's session storage. Realtime snapshots are individualized before they are sent; the hidden role, unassigned clues, and authoritative timestamps of shared clues are withheld until the reveal.
-- Scenario definitions live in `src/scenarios.ts`. Each definition has a versioned ordered truth, stable event IDs, clue support links, distinct room views, environmental anomalies, and a Distorter ability definition.
+- During investigation, each witness gets a distinct room variant and uses the illustrated observatory to inspect room objects. Only assigned evidence found through a server-validated inspection enters that witness's private journal. Sharing undiscovered evidence is rejected by the room server.
+- Scenario definitions live in `src/scenarios.ts`. Each definition has a versioned ordered truth, stable event IDs, clue support links to searchable objects, distinct room views, environmental anomalies, and a Distorter ability definition. Timeline event cards are independently shuffled per player so their presentation never gives away the correct sequence.
 - Scenario validation checks ordered timestamps, unique IDs, valid clue-to-event references, at least two evidence links per timeline event, and enough distinct room views before a round starts.
 - Assignment uses the cryptographically generated room seed to reproducibly shuffle the Distorter, clue distribution, room views, and environmental anomalies. Clues are dealt once and as evenly as possible across 4–8 participants.
 - `src/projections.ts` removes the original shared-clue timestamp from every pre-reveal player snapshot and restores it only in the reveal phase.
@@ -36,4 +37,4 @@ Scenario 01, **The Last Light**, remains the only playable scenario. The registr
 
 ## Local checks
 
-Run `npm run typecheck` for the Worker types and `npm test` for scenario validation, deterministic assignment, 4–8 player clue/view distribution, role distribution, and pre-reveal timestamp projection checks. These checks run locally and do not require a Cloudflare API token or paid service.
+Run `npm run typecheck` for the Worker types and `npm test` for scenario validation, deterministic assignment, 4–8 player clue/view distribution, role distribution, per-player timeline presentation, server-validated clue inspection and sharing, and pre-reveal timestamp projection checks. These checks run locally and do not require a Cloudflare API token or paid service.

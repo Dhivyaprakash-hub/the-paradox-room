@@ -19,6 +19,14 @@ test("scenario validation rejects unsupported events and duplicate IDs", () => {
   const duplicateEvent = structuredClone(LAST_LIGHT);
   duplicateEvent.timeline[1].id = duplicateEvent.timeline[0].id;
   assert.throws(() => validateScenario(duplicateEvent), /unique, non-empty timeline event IDs/);
+
+  const duplicateLook = structuredClone(LAST_LIGHT);
+  duplicateLook.roomViews[1].look = duplicateLook.roomViews[0].look;
+  assert.throws(() => validateScenario(duplicateLook), /unique, non-empty room view styles/);
+
+  const invalidPosition = structuredClone(LAST_LIGHT);
+  invalidPosition.objects[0].x = Number.NaN;
+  assert.throws(() => validateScenario(invalidPosition), /invalid room object/);
 });
 
 test("4–8 participant assignments deal every clue once and keep room views distinct", () => {
@@ -34,9 +42,25 @@ test("4–8 participant assignments deal every clue once and keep room views dis
     assert.deepEqual([...dealtClues].sort(), LAST_LIGHT.clues.map(clue => clue.id).sort());
     assert.ok(Math.max(...Object.values(assignment.clueIdsByPlayer).map(clues => clues.length)) - Math.min(...Object.values(assignment.clueIdsByPlayer).map(clues => clues.length)) <= 1);
     assert.equal(new Set(roomViews).size, count);
+    assert.ok(Object.values(assignment.timelineItemsByPlayer).every(items => items.length === LAST_LIGHT.timeline.length && new Set(items).size === LAST_LIGHT.timeline.length));
     assert.equal(distorters.length, 1);
     assert.equal(Object.values(assignment.anomalyIdByPlayer).filter(Boolean).length, expectedAnomalies);
   }
+});
+
+test("timeline cards are independently shuffled and never expose the answer order", () => {
+  const players = ["p1", "p2", "p3", "p4"];
+  const assignment = assignScenario(LAST_LIGHT, players, "timeline-presentation");
+  const correct = LAST_LIGHT.timeline.map(event => event.id);
+  assert.ok(players.some(playerId => assignment.timelineItemsByPlayer[playerId].join() !== correct.join()));
+  assert.deepEqual(assignment.timelineItemsByPlayer, assignScenario(LAST_LIGHT, players, "timeline-presentation").timelineItemsByPlayer);
+
+  const roster = players.map((playerId, index) => ({ id: playerId, name: playerId, kind: "human", token: playerId, role: index === 0 ? "distorter" : "witness", ready: true, clueIds: [], inspectedClueIds: [], visitedHotspotIds: [], timelineItemIds: assignment.timelineItemsByPlayer[playerId], anomaly: null, connected: true, roomView: null }));
+  const room = { code: "TEST42", phase: "timeline", players: roster, created: 0, deadline: null, version: 1, scenario: "midnight", scenarioVersion: 1, seed: "timeline-presentation", votes: {}, timelines: {}, shared: [], chat: [], distortUsed: false, events: [] };
+  const snapshot = new GameRoom({}, {}).publicView(room, roster[0]);
+  assert.deepEqual(snapshot.timeline.items, assignment.timelineItemsByPlayer.p1);
+  assert.notDeepEqual(snapshot.timeline.items, correct);
+  assert.deepEqual(snapshot.timeline.milestones, snapshot.timeline.items.map(item => LAST_LIGHT.timeline.find(event => event.id === item).text));
 });
 
 test("a room seed reproduces role, evidence, view, and anomaly assignments", () => {
@@ -69,10 +93,10 @@ test("shared evidence hides authoritative times until the reveal without mutatin
 test("the live private snapshot exposes only the requesting player's role and clues", () => {
   const game = new GameRoom({}, {});
   const players = [
-    { id: "p1", name: "One", kind: "human", token: "one", role: "distorter", ready: true, clueIds: ["c1"], anomaly: null, connected: true, roomView: null },
-    { id: "p2", name: "Two", kind: "human", token: "two", role: "witness", ready: true, clueIds: ["c2"], anomaly: null, connected: true, roomView: null },
-    { id: "p3", name: "Three", kind: "human", token: "three", role: "witness", ready: true, clueIds: ["c3"], anomaly: null, connected: true, roomView: null },
-    { id: "p4", name: "Four", kind: "human", token: "four", role: "witness", ready: true, clueIds: ["c4"], anomaly: null, connected: true, roomView: null },
+    { id: "p1", name: "One", kind: "human", token: "one", role: "distorter", ready: true, clueIds: ["c1"], inspectedClueIds: ["c1"], visitedHotspotIds: ["key-hook"], anomaly: null, connected: true, roomView: null },
+    { id: "p2", name: "Two", kind: "human", token: "two", role: "witness", ready: true, clueIds: ["c2"], inspectedClueIds: ["c2"], visitedHotspotIds: ["shutter-console"], anomaly: null, connected: true, roomView: null },
+    { id: "p3", name: "Three", kind: "human", token: "three", role: "witness", ready: true, clueIds: ["c3"], inspectedClueIds: [], visitedHotspotIds: [], anomaly: null, connected: true, roomView: null },
+    { id: "p4", name: "Four", kind: "human", token: "four", role: "witness", ready: true, clueIds: ["c4"], inspectedClueIds: [], visitedHotspotIds: [], anomaly: null, connected: true, roomView: null },
   ];
   const room = {
     code: "TEST42", phase: "investigation", players, created: 0, deadline: null, version: 1,
@@ -94,6 +118,33 @@ test("the live private snapshot exposes only the requesting player's role and cl
   assert.ok(distorterView.players.every(player => !("role" in player)));
   assert.equal("time" in distorterView.shared[0], false);
   assert.equal(distorterView.result, undefined);
+  assert.deepEqual(game.publicView(room, players[2]).you.clues, [], "assigned traces stay private until inspected");
+});
+
+test("scenario clues point at valid inspectable room objects", () => {
+  const objectIds = new Set(LAST_LIGHT.objects.map(object => object.id));
+  assert.ok(LAST_LIGHT.clues.every(clue => objectIds.has(clue.hotspotId)));
+  const invalid = structuredClone(LAST_LIGHT);
+  invalid.clues[0].hotspotId = "missing-object";
+  assert.throws(() => validateScenario(invalid), /incomplete clue data/);
+});
+
+test("server inspection reveals only assigned traces and blocks sharing before discovery", async () => {
+  const p = { id: "p1", name: "Witness", kind: "human", token: "secret", role: "witness", ready: true, clueIds: ["c1", "c2"], inspectedClueIds: [], visitedHotspotIds: [], anomaly: null, connected: true, roomView: { id: "fogglass", look: "fogglass", title: "Cold glass", text: "A different room." } };
+  const room = { code: "TEST42", phase: "investigation", players: [p], created: 0, deadline: null, version: 1, scenario: "midnight", scenarioVersion: 1, seed: "seed", votes: {}, timelines: {}, shared: [], chat: [], distortUsed: false, events: [] };
+  const storage = { get: async () => room, put: async () => {} };
+  const game = new GameRoom({ storage, getWebSockets: () => [] }, {});
+  assert.deepEqual(game.publicView(room, p).you.clues, []);
+  assert.equal((await game.action("secret", { type: "share", clueId: "c1" })).status, 400);
+  const found = await game.action("secret", { type: "inspect", objectId: "key-hook" });
+  const foundData = await found.json();
+  assert.equal(found.status, 200);
+  assert.deepEqual(foundData.found, ["Condensation on the key"]);
+  assert.deepEqual(game.publicView(room, p).you.clues.map(clue => clue.id), ["c1"]);
+  assert.equal("supports" in game.publicView(room, p).you.clues[0], false);
+  assert.equal("hotspotId" in game.publicView(room, p).you.clues[0], false);
+  assert.equal((await game.action("secret", { type: "inspect", objectId: "key-hook" })).status, 400);
+  assert.equal((await game.action("secret", { type: "inspect", objectId: "not-an-object" })).status, 400);
 });
 
 test("rooms saved by the previous version receive a non-disruptive scenario/participant migration", async () => {
@@ -108,17 +159,18 @@ test("rooms saved by the previous version receive a non-disruptive scenario/part
   assert.equal(migrated.scenarioVersion, 1);
   assert.equal(migrated.players[0].kind, "human");
   assert.equal(migrated.players[0].token, "legacy-token");
+  assert.deepEqual(migrated.players[0].timelineItemIds, []);
   assert.equal(saved.scenarioVersion, 1);
 });
 
 test("the server rejects unsupported Distorter directions without changing evidence", async () => {
   const room = {
-    code: "TEST42", phase: "discussion", players: [{ id: "p1", name: "Distorter", kind: "human", token: "secret", role: "distorter", ready: true, clueIds: [], anomaly: null, connected: true, roomView: null }],
+    code: "TEST42", phase: "discussion", players: [{ id: "p1", name: "Distorter", kind: "human", token: "secret", role: "distorter", ready: true, clueIds: [], inspectedClueIds: [], visitedHotspotIds: [], anomaly: null, connected: true, roomView: null }],
     created: 0, deadline: null, version: 1, scenario: "midnight", scenarioVersion: 1, seed: "seed", votes: {}, timelines: {},
     shared: [{ id: "shared-1", owner: "p2", ownerName: "Witness", clueId: "c2", title: "Motor", text: "Trace", time: "00:14", kind: "sensor", room: "Dome", displayTime: "00:14" }],
     chat: [], distortUsed: false, events: [],
   };
-  const game = new GameRoom({ storage: { get: async () => room } }, {});
+  const game = new GameRoom({ storage: { get: async () => room, put: async () => {} } }, {});
   const response = await game.action("secret", { type: "distort", sharedId: "shared-1", direction: "sideways" });
 
   assert.equal(response.status, 400);
