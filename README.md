@@ -37,10 +37,12 @@ No end-user authentication or external database secrets are required. Cloudflare
 - `src/projections.ts` removes the original shared-clue timestamp from every pre-reveal player snapshot and restores it only in the reveal phase.
 - The server validates every state-changing action. Phase deadlines use Durable Object alarms; the host can move a phase forward, while all ballots must be sealed before early reveal.
 
+See [the architecture and security notes](docs/architecture.md) for state boundaries, data retention, and current operational limitations.
+
 ## Current scope
 
 Scenario 01, **The Last Light**, remains the only playable scenario. The registry and assignment engine can now validate additional scenario data, but new scenarios and AI participants are not included yet. Human-only private rooms still require 4–8 players. There is no login, elimination, chat transcript retention, or paid service dependency.
 
 ## Local checks
 
-Run `npm run typecheck` for the Worker types and `npm test` for scenario validation, deterministic assignment, 4–8 player clue/view distribution, role distribution, per-player timeline presentation, server-validated clue inspection and sharing, and pre-reveal timestamp projection checks. These checks run locally and do not require a Cloudflare API token or paid service.
+Run `npm run typecheck` for Worker types, `npm test` for scenario and privacy invariants, and `npm run test:integration` to start a local Worker and complete a full round with four independent WebSocket clients. The CI workflow also checks a Wrangler deployment dry run. These checks do not require a Cloudflare API token or paid service.

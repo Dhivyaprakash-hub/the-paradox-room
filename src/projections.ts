@@ -13,8 +13,11 @@ export interface SharedEvidence {
 }
 
 /** Hide the authoritative timestamp from every player until the reveal phase. */
-export function projectSharedEvidence(items: SharedEvidence[], revealed: boolean): Array<Omit<SharedEvidence, "time"> | SharedEvidence> {
-  return items.map(item => {
+export function projectSharedEvidence(
+  items: SharedEvidence[],
+  revealed: boolean,
+): Array<Omit<SharedEvidence, "time"> | SharedEvidence> {
+  return items.map((item) => {
     const { time, ...beforeReveal } = item;
     return revealed ? { ...beforeReveal, time } : beforeReveal;
   });
