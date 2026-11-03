@@ -1,0 +1,18 @@
+name = "the-paradox-room"
+main = "src/worker.ts"
+account_id = "9388e7efa3cd249cd06e8523c65d3be1"
+compatibility_date = "2026-10-30"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/socket/*"]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "GameRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
