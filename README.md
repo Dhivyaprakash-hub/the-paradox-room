@@ -2,6 +2,12 @@
 
 A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Object. The Durable Object for a room is the authority for membership, roles, private evidence, phase changes, ballots, and scores. Static browser assets are served by the same Worker.
 
+## Play
+
+**[Play The Paradox Room](https://the-paradox-room.cookie-song-938.workers.dev/)** — no account is required. Create a room, share its six-character code, and gather at least four players. The current playable mystery is **The Last Light**.
+
+Each witness explores a distinct version of the observatory, privately investigates room objects, shares selected evidence, reconstructs the event timeline, and votes on who is distorting the truth. The full round ends with a reveal of the actual timeline and scoring.
+
 ## Run locally
 
 1. Install Node.js 22 or newer.
