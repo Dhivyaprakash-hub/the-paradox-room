@@ -6,7 +6,7 @@ A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Obje
 
 **[Play The Paradox Room](https://the-paradox-room.cookie-song-938.workers.dev/)** — no account is required. Create a room, share its six-character code, and gather at least four players. The current playable mystery is **The Last Light**.
 
-Each witness explores a distinct version of the observatory, privately investigates room objects, shares selected evidence, reconstructs the event timeline, and votes on who is distorting the truth. The full round ends with a reveal of the actual timeline and scoring.
+Each witness explores a distinct version of the observatory, privately investigates room objects, shares selected evidence, reconstructs the event timeline, and votes on who is distorting the truth. The full round ends with a reveal of the actual timeline and scoring. **Practice solo** fills the room with three server-run AI witnesses. Hosts can also add or remove AI witnesses in a private lobby to create a mixed group.
 
 ## Run locally
 
@@ -41,8 +41,8 @@ See [the architecture and security notes](docs/architecture.md) for state bounda
 
 ## Current scope
 
-Scenario 01, **The Last Light**, remains the only playable scenario. The registry and assignment engine can now validate additional scenario data, but new scenarios and AI participants are not included yet. Human-only private rooms still require 4–8 players. There is no login, elimination, chat transcript retention, or paid service dependency.
+Scenario 01, **The Last Light**, is the first playable scenario. Its fixed truth and evidence support links are validated before play, and assignment shuffles private room variants, clues, anomalies, and roles while preserving the answer. Eight rule-based AI personalities can fill a room without an external model or paid inference service. AI decisions use only their own assigned and inspected clues, evidence already shared publicly, and public discussion. The AI cannot read the hidden role, unshared evidence, or canonical timeline order. Human-only private rooms remain available and support 4–8 participants. There is no login, elimination, or chat transcript retention.
 
 ## Local checks
 
-Run `npm run typecheck` for Worker types, `npm test` for scenario and privacy invariants, and `npm run test:integration` to start a local Worker and complete a full round with four independent WebSocket clients. The CI workflow also checks a Wrangler deployment dry run. These checks do not require a Cloudflare API token or paid service.
+Run `npm run typecheck` for Worker types, `npm test` for scenario, AI, and privacy invariants, `npm run test:integration` to complete a full round with four independent WebSocket clients and a solo round with three server-run AI witnesses, and `npm run format:check` for formatting. The CI workflow also checks a Wrangler deployment dry run. These checks do not require a Cloudflare API token or paid service.

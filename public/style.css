@@ -620,6 +620,7 @@ h1 em {
   gap: 8px;
 }
 .player {
+  position: relative;
   border: 1px solid #2b3040;
   background: #11141d;
   padding: 13px;
@@ -636,6 +637,34 @@ h1 em {
 .player-name span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ai-player {
+  border-color: #393153;
+  background: linear-gradient(145deg, #151522, #11141d 75%);
+}
+.ai-identity {
+  display: block;
+  color: var(--violet);
+  font: 7px var(--mono);
+  letter-spacing: 0.07em;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-chat-tag {
+  display: inline-block;
+  margin-left: 7px;
+  color: var(--violet);
+  font: 7px var(--mono);
+  letter-spacing: 0.04em;
+}
+.mode-tag {
+  border: 1px solid #514276;
+  color: #c5b5ff;
+  padding: 8px 9px;
+  font: 8px var(--mono);
+  letter-spacing: 0.08em;
 }
 .status {
   font: 8px var(--mono);
@@ -668,6 +697,18 @@ h1 em {
   align-items: center;
   gap: 10px;
   margin-top: 16px;
+}
+.lobby-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.remove-ai {
+  display: block;
+  margin: 7px 0 0 auto;
+  padding: 0;
+  font-size: 7px;
 }
 .hint {
   font-size: 11px;
@@ -1054,6 +1095,9 @@ h1 em {
   .actions > * {
     flex: 1;
   }
+  .actions > #solo {
+    order: 1;
+  }
   .gamebar {
     height: 58px;
   }
@@ -1101,6 +1145,13 @@ h1 em {
   }
   .players {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .lobby-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .lobby-buttons > * {
+    flex: 1 1 auto;
   }
   .panel {
     padding: 15px;

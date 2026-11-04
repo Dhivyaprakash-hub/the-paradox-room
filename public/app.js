@@ -48,9 +48,9 @@ function showHome() {
   clearInterval(app.phaseTick);
   history.replaceState({}, "", "/");
 }
-function nameDialog(join = false) {
+function nameDialog(join = false, mode = "private") {
   modal(
-    `<div class="modal-card"><div class="eyebrow"><i></i> ${join ? "ENTER THE ROOM" : "OPEN THE ROOM"}</div><h2>${join ? "A room is waiting." : "Name your witness."}</h2><p>${join ? "Enter the six-character code shared by your host." : "Choose a name the other witnesses will recognize."} No account is needed.</p>${join ? '<label class="label">ROOM CODE</label><input class="input" id="room-code" maxlength="6" placeholder="E.G. K7M2QX" autocomplete="off">' : ""}<label class="label">YOUR NAME</label><input class="input" id="player-name" maxlength="20" placeholder="A name to remember" autocomplete="nickname"><div class="modal-actions"><button class="link-button" id="cancel">Cancel</button><button class="primary" id="continue">${join ? "Join room" : "Create room"} <span>↗</span></button></div></div>`,
+    `<div class="modal-card"><div class="eyebrow"><i></i> ${join ? "ENTER THE ROOM" : mode === "solo" ? "SOLO PRACTICE / 01" : "OPEN THE ROOM"}</div><h2>${join ? "A room is waiting." : mode === "solo" ? "Meet your other witnesses." : "Name your witness."}</h2><p>${join ? "Enter the six-character code shared by your host." : mode === "solo" ? "Three AI witnesses will join you, each with their own role, room view and private evidence. No account or AI service is needed." : "Choose a name the other witnesses will recognize."} No account is needed.</p>${join ? '<label class="label">ROOM CODE</label><input class="input" id="room-code" maxlength="6" placeholder="E.G. K7M2QX" autocomplete="off">' : ""}<label class="label">YOUR NAME</label><input class="input" id="player-name" maxlength="20" placeholder="A name to remember" autocomplete="nickname"><div class="modal-actions"><button class="link-button" id="cancel">Cancel</button><button class="primary" id="continue">${join ? "Join room" : mode === "solo" ? "Start solo practice" : "Create room"} <span>↗</span></button></div></div>`,
   );
   $("#cancel").onclick = closeModal;
   $("#continue").onclick = async () => {
@@ -65,7 +65,7 @@ function nameDialog(join = false) {
       const r = await fetch(`/api/${join ? "join" : "create"}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, code }),
+        body: JSON.stringify({ name, code, ...(mode === "solo" && !join ? { mode: "solo" } : {}) }),
       });
       const d = await r.json();
       if (!r.ok) throw Error(d.error || "Could not open room.");
@@ -177,7 +177,7 @@ function send(type, data = {}) {
 }
 function openRules() {
   modal(
-    `<div class="modal-card"><div class="eyebrow"><i></i> FIELD GUIDE / 01</div><h2>How to read the room.</h2><div class="rules"><div class="rule"><b>01</b><span><strong>Every witness sees a different slice.</strong> Your room has its own visual anomaly and private traces. Click glowing objects or use the room index to search; share a trace only after you find it.</span></div><div class="rule"><b>02</b><span><strong>The room can lie, too.</strong> Environmental anomalies are randomly assigned and are separate from the Distorter. Contradiction by itself proves nothing.</span></div><div class="rule"><b>03</b><span><strong>Build the sequence together.</strong> Pool physical traces, sensor records and memories. Some clues corroborate; some are ambiguous.</span></div><div class="rule"><b>04</b><span><strong>One player is the Distorter.</strong> They have one chance to shift a shared timestamp by one minute. Other clues remain untouched.</span></div><div class="rule"><b>05</b><span><strong>No one is removed.</strong> Arrange the four events, then secretly vote. Everyone sees the complete truth and score at the end.</span></div><div class="rule"><b>06</b><span><strong>Scoring.</strong> Witnesses earn a point for the correct timeline and one for identifying the Distorter. The Distorter wins if the group misses either.</span></div></div><div class="modal-actions"><span class="hint">SCENARIO 01 · THE LAST LIGHT</span><button class="primary" id="rules-close">Understood</button></div></div>`,
+    `<div class="modal-card"><div class="eyebrow"><i></i> FIELD GUIDE / 01</div><h2>How to read the room.</h2><div class="rules"><div class="rule"><b>01</b><span><strong>Every witness sees a different slice.</strong> Your room has its own visual anomaly and private traces. Click glowing objects or use the room index to search; share a trace only after you find it.</span></div><div class="rule"><b>02</b><span><strong>The room can lie, too.</strong> Environmental anomalies are randomly assigned and are separate from the Distorter. Contradiction by itself proves nothing.</span></div><div class="rule"><b>03</b><span><strong>Build the sequence together.</strong> Pool physical traces, sensor records and memories. Some clues corroborate; some are ambiguous.</span></div><div class="rule"><b>04</b><span><strong>One player is the Distorter.</strong> They have one chance to shift a shared timestamp by one minute. Other clues remain untouched.</span></div><div class="rule"><b>05</b><span><strong>No one is removed.</strong> Arrange the four events, then secretly vote. Everyone sees the complete truth and score at the end.</span></div><div class="rule"><b>06</b><span><strong>Scoring.</strong> Witnesses earn a point for the correct timeline and one for identifying the Distorter. The Distorter wins if the group misses either.</span></div><div class="rule"><b>07</b><span><strong>Alone? Choose Practice solo.</strong> Three rule-driven AI witnesses fill the other seats. They have their own roles, room versions and clues. They use no outside AI service.</span></div></div><div class="modal-actions"><span class="hint">SCENARIO 01 · THE LAST LIGHT</span><button class="primary" id="rules-close">Understood</button></div></div>`,
   );
   $("#rules-close").onclick = closeModal;
 }
@@ -186,6 +186,7 @@ document.addEventListener("click", (e) => {
   if (e.target === $("#modal")) closeModal();
 });
 $("#create").onclick = () => nameDialog(false);
+$("#solo").onclick = () => nameDialog(false, "solo");
 $$("[data-open=join]").forEach((x) => (x.onclick = () => nameDialog(true)));
 function render() {
   const s = app.state;
@@ -200,7 +201,7 @@ function render() {
     .filter((item) => item.rank);
   if (s.phase === "timeline" && currentTimeline.length) app.timelineDraft = currentTimeline;
   if (s.phase !== "timeline") app.timelineDraft = null;
-  root.innerHTML = `<header class="gamebar"><div class="game-brand"><strong>P<span style="color:var(--blue)">·</span>R</strong><span>THE PARADOX ROOM</span></div><div style="display:flex;gap:8px;align-items:center"><span class="phase-tag">${esc(s.phase.toUpperCase())}</span><button class="room-tag" id="copy-code">ROOM ${esc(s.code)} ⧉</button></div></header><div class="gamehead"><div><div class="eyebrow"><i></i> ${esc(s.scenario.location.toUpperCase())}</div><h1>${esc(s.scenario.title)}<span style="color:var(--violet)">.</span></h1><p>${phaseCopy(s.phase)}</p></div><button class="text-button" id="rules-inline">FIELD GUIDE ↗</button></div>${s.phase === "reveal" ? revealHtml(s) : `<div class="game-layout"><div class="main-column">${s.phase === "lobby" ? lobbyHtml(s) : roundHtml(s)}</div><aside class="side-panel">${sideHtml(s)}</aside></div>`}`;
+  root.innerHTML = `<header class="gamebar"><div class="game-brand"><strong>P<span style="color:var(--blue)">·</span>R</strong><span>THE PARADOX ROOM</span></div><div style="display:flex;gap:8px;align-items:center">${s.mode === "solo" ? '<span class="mode-tag">SOLO PRACTICE</span>' : ""}<span class="phase-tag">${esc(s.phase.toUpperCase())}</span><button class="room-tag" id="copy-code">ROOM ${esc(s.code)} ⧉</button></div></header><div class="gamehead"><div><div class="eyebrow"><i></i> ${esc(s.scenario.location.toUpperCase())}</div><h1>${esc(s.scenario.title)}<span style="color:var(--violet)">.</span></h1><p>${phaseCopy(s.phase)}</p></div><button class="text-button" id="rules-inline">FIELD GUIDE ↗</button></div>${s.phase === "reveal" ? revealHtml(s) : `<div class="game-layout"><div class="main-column">${s.phase === "lobby" ? lobbyHtml(s) : roundHtml(s)}</div><aside class="side-panel">${sideHtml(s)}</aside></div>`}`;
   const chatInput = $("#chat-input", root);
   if (chatInput) {
     chatInput.value = draft;
@@ -220,6 +221,8 @@ function render() {
     const { action: a, ...d } = b.dataset;
     if (a === "ready") action("ready", { ready: b.dataset.ready !== "true" });
     if (a === "start") action("start");
+    if (a === "add-ai") action("add-ai");
+    if (a === "remove-ai") action("remove-ai", { playerId: d.player });
     if (a === "advance") action("advance");
     if (a === "share") action("share", { clueId: d.clue });
     if (a === "inspect") action("inspect", { objectId: d.object });
@@ -271,7 +274,7 @@ function render() {
 }
 function phaseCopy(p) {
   return {
-    lobby: "Gather four to eight witnesses. The door closes when everyone is ready.",
+    lobby: "Gather four to eight witnesses. Add AI companions to play solo or fill open seats.",
     investigation:
       "Explore your room, inspect objects and compare your private traces. Every witness sees a different version.",
     discussion: "Compare memories. The room's false echoes are not the Distorter's work.",
@@ -283,7 +286,21 @@ function phaseCopy(p) {
 function lobbyHtml(s) {
   const host = s.players[0]?.isYou,
     allReady = s.players.length >= 4 && s.players.every((p) => p.ready);
-  return `<section class="panel"><div class="panel-title"><span>WITNESSES IN THE ROOM</span><small>${s.players.length} / 8</small></div><div class="players">${s.players.map((p) => `<div class="player"><div class="player-name"><span>${esc(p.name)}</span>${p.isYou ? '<span class="self-tag">YOU</span>' : ""}</div><div class="status ${p.ready ? "ready" : ""} ${p.connected ? "" : "offline"}"><i></i>${p.connected ? (p.ready ? "READY" : "IN THE ROOM") : "RECONNECTING"}</div></div>`).join("")}</div><div class="lobby-controls"><div class="hint">${s.players.length < 4 ? `Waiting for ${4 - s.players.length} more witness${4 - s.players.length === 1 ? "" : "es"} to join.` : allReady ? "Everyone is ready. The host can open the door." : "Four witnesses are here. Mark ready when you want the investigation to begin."}</div><div style="display:flex;gap:8px">${s.players.find((p) => p.isYou)?.ready ? `<button class="secondary btn-small" data-action="ready" data-ready="true">CANCEL READY</button>` : `<button class="primary btn-small" data-action="ready" data-ready="false">I'M READY</button>`}${host ? `<button class="secondary btn-small" data-action="start" ${s.players.length < 4 || !allReady ? "disabled" : ""}>BEGIN ↗</button>` : ""}</div></div></section><section class="panel"><div class="panel-title"><span>BEFORE THE DOOR OPENS</span><small>FIELD NOTES</small></div><div class="rules"><div class="rule"><b>01</b><span>The room changes for every witness. Click glowing objects or use the room index to search, then choose which discoveries to share.</span></div><div class="rule"><b>02</b><span>Some witnesses remember an impossible room anomaly. The room itself can create false information.</span></div><div class="rule"><b>03</b><span>One witness is secretly the Distorter. No one is eliminated; everyone stays in the investigation.</span></div></div></section>`;
+  return `<section class="panel"><div class="panel-title"><span>WITNESSES IN THE ROOM</span><small>${s.players.length} / 8 · ${esc(s.mode === "solo" ? "SOLO PRACTICE" : "PRIVATE ROOM")}</small></div><div class="players">${s.players
+    .map((p) => {
+      const status =
+        p.kind === "ai"
+          ? p.activity || "AI READY"
+          : p.connected
+            ? p.ready
+              ? "READY"
+              : "IN THE ROOM"
+            : "RECONNECTING";
+      return `<div class="player ${p.kind === "ai" ? "ai-player" : ""}"><div class="player-name"><span>${esc(p.name)}${p.kind === "ai" ? `<small class="ai-identity">AI · ${esc(p.personality)}</small>` : ""}</span>${p.isYou ? '<span class="self-tag">YOU</span>' : ""}</div><div class="status ${p.ready ? "ready" : ""} ${p.kind === "ai" || p.connected ? "" : "offline"}"><i></i>${esc(status)}</div>${host && p.kind === "ai" ? `<button class="link-button remove-ai" data-action="remove-ai" data-player="${esc(p.id)}">REMOVE</button>` : ""}</div>`;
+    })
+    .join(
+      "",
+    )}</div><div class="lobby-controls"><div class="hint">${s.players.length < 4 ? `Waiting for ${4 - s.players.length} more witness${4 - s.players.length === 1 ? "" : "es"}. Add AI companions or share the room code with friends.` : allReady ? "Everyone is ready. The host can open the door." : "Four witnesses are here. Mark ready when you want the investigation to begin."}</div><div class="lobby-buttons">${s.players.find((p) => p.isYou)?.ready ? `<button class="secondary btn-small" data-action="ready" data-ready="true">CANCEL READY</button>` : `<button class="primary btn-small" data-action="ready" data-ready="false">I'M READY</button>`}${host && s.players.length < 8 ? `<button class="secondary btn-small" data-action="add-ai">ADD AI WITNESS +</button>` : ""}${host ? `<button class="secondary btn-small" data-action="start" ${s.players.length < 4 || !allReady ? "disabled" : ""}>BEGIN ↗</button>` : ""}</div></div></section><section class="panel"><div class="panel-title"><span>BEFORE THE DOOR OPENS</span><small>FIELD NOTES</small></div><div class="rules"><div class="rule"><b>01</b><span>The room changes for every witness. Click glowing objects or use the room index to search, then choose which discoveries to share.</span></div><div class="rule"><b>02</b><span>Some witnesses remember an impossible room anomaly. The room itself can create false information.</span></div><div class="rule"><b>03</b><span>One witness is secretly the Distorter. No one is eliminated; everyone stays in the investigation.</span></div><div class="rule"><b>04</b><span>AI witnesses have their own room, role, and evidence. Their profiles shape how they share and reason.</span></div></div></section>`;
 }
 function roundHtml(s) {
   const you = s.you;
@@ -331,10 +348,10 @@ function roundHtml(s) {
       s.chat.length
         ? s.chat
             .slice(-50)
-            .map(
-              (m) =>
-                `<div class="chat-line"><div><b>${esc(m.name)}</b><span>${new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div><p>${esc(m.text)}</p></div>`,
-            )
+            .map((m) => {
+              const sender = s.players.find((player) => player.id === m.playerId);
+              return `<div class="chat-line"><div><b>${esc(m.name)}${sender?.kind === "ai" ? `<small class="ai-chat-tag">AI · ${esc(sender.personality)}</small>` : ""}</b><span>${new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div><p>${esc(m.text)}</p></div>`;
+            })
             .join("")
         : '<div class="empty">The channel is open. Share a theory, ask what others saw, or compare your traces.</div>'
     }</div><form id="chat-form" class="chat-form"><input class="input" id="chat-input" maxlength="280" autocomplete="off" placeholder="Share an observation with the witnesses…" aria-label="Message for the room"><button class="primary btn-small" type="submit">SEND ↗</button></form></section>`;
@@ -353,7 +370,7 @@ function clueCard(c, share) {
 }
 function sideHtml(s) {
   const self = s.players.find((p) => p.isYou);
-  return `<div class="timer-wrap"><span>UNTIL ROOM SHIFTS</span><div class="timer" id="timer">—:—</div></div><h3>${s.phase === "lobby" ? "The threshold" : s.phase === "reveal" ? "Memory recovered" : phaseCopy(s.phase).split(".")[0]}</h3><p>${s.phase === "lobby" ? "Invite witnesses with this room code. The room needs four before the door seals." : s.phase === "investigation" ? "Search glowing objects in your room. Finding a trace adds it to your private journal; share only what helps the group." : s.phase === "discussion" ? "Compare the public traces and use the remaining time to test your theory." : s.phase === "timeline" ? `Place all ${s.timeline.items.length} events. You may update your order until the timer ends.` : "Your vote is confidential. The room opens only after all ballots are sealed."}</p>${s.phase === "lobby" ? `<div class="event">YOUR SESSION IS GUEST-ONLY.<br>No account or personal data is required.</div>` : `<div class="event"><b>${s.shared.length}</b> shared trace${s.shared.length === 1 ? "" : "s"} · <b>${s.phase === "voting" ? s.voteCount : s.players.filter((x) => x.ready).length}/${s.players.length}</b> ${s.phase === "voting" ? "votes sealed" : "ready"}</div>`}${s.you.ability ? `<div class="ability"><div class="label">DISTORTER / ONE USE ${s.you.ability.used ? "· SPENT" : "· READY"}</div><p>${esc(s.you.ability.text)}</p>${s.you.ability.used ? '<span class="chip">USED</span>' : ""}</div>` : ""}${s.phase === "investigation" || s.phase === "discussion" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">${s.phase === "investigation" ? "MOVE TO DISCUSSION" : "OPEN TIMELINE"} ↗</button></div>` : ""}${s.phase === "timeline" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">OPEN SECRET VOTE ↗</button></div>` : ""}${s.phase === "voting" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">CLOSE BALLOTS ↗</button></div>` : ""}<div style="margin-top:14px"><button class="link-button" data-action="leave">Leave room</button></div>`;
+  return `<div class="timer-wrap"><span>UNTIL ROOM SHIFTS</span><div class="timer" id="timer">—:—</div></div><h3>${s.phase === "lobby" ? "The threshold" : s.phase === "reveal" ? "Memory recovered" : phaseCopy(s.phase).split(".")[0]}</h3><p>${s.phase === "lobby" ? (s.mode === "solo" ? "Your three AI witnesses are ready. Mark yourself ready, then open the door." : "Invite witnesses or add AI companions. The room needs four before the door seals.") : s.phase === "investigation" ? "Search glowing objects in your room. Finding a trace adds it to your private journal; share only what helps the group." : s.phase === "discussion" ? "Compare the public traces and use the remaining time to test your theory." : s.phase === "timeline" ? `Place all ${s.timeline.items.length} events. You may update your order until the timer ends.` : "Your vote is confidential. The room opens only after all ballots are sealed."}</p>${s.phase === "lobby" ? `<div class="event">GUEST SESSION · NO ACCOUNT REQUIRED<br>${s.mode === "solo" ? "AI participants run inside the game server; no outside AI service is used." : "Share the room code with friends or add AI seats."}</div>` : `<div class="event"><b>${s.shared.length}</b> shared trace${s.shared.length === 1 ? "" : "s"} · <b>${s.phase === "voting" ? s.voteCount : s.players.filter((x) => x.ready).length}/${s.players.length}</b> ${s.phase === "voting" ? "votes sealed" : "ready"}</div>`}${s.you.ability ? `<div class="ability"><div class="label">DISTORTER / ONE USE ${s.you.ability.used ? "· SPENT" : "· READY"}</div><p>${esc(s.you.ability.text)}</p>${s.you.ability.used ? '<span class="chip">USED</span>' : ""}</div>` : ""}${s.phase === "investigation" || s.phase === "discussion" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">${s.phase === "investigation" ? "MOVE TO DISCUSSION" : "OPEN TIMELINE"} ↗</button></div>` : ""}${s.phase === "timeline" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">OPEN SECRET VOTE ↗</button></div>` : ""}${s.phase === "voting" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">CLOSE BALLOTS ↗</button></div>` : ""}<div style="margin-top:14px"><button class="link-button" data-action="leave">Leave room</button></div>`;
 }
 function startTimer(deadline) {
   clearInterval(app.phaseTick);

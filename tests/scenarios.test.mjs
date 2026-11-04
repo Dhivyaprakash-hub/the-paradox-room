@@ -9,6 +9,7 @@ import {
 } from "../src/scenarios.ts";
 import { projectSharedEvidence } from "../src/projections.ts";
 import { GameRoom } from "../src/worker.ts";
+import { AI_PERSONALITIES, chooseAiShares, chooseAiTimeline, chooseAiVote } from "../src/ai.ts";
 
 test("registered scenarios have ordered truths and evidence coverage", () => {
   for (const scenario of Object.values(SCENARIOS)) validateScenario(scenario);
@@ -463,4 +464,129 @@ test("the server rejects unsupported Distorter directions without changing evide
   assert.equal(response.status, 400);
   assert.equal(room.shared[0].displayTime, "00:14");
   assert.equal(room.distortUsed, false);
+});
+
+test("eight AI personalities have distinct profiles and share only clues they were assigned", () => {
+  assert.equal(AI_PERSONALITIES.length, 8);
+  assert.equal(new Set(AI_PERSONALITIES.map((profile) => profile.id)).size, 8);
+  assert.equal(new Set(AI_PERSONALITIES.map((profile) => profile.name)).size, 8);
+  const clues = LAST_LIGHT.clues.slice(0, 3);
+  for (const profile of AI_PERSONALITIES) {
+    const selected = chooseAiShares(profile.id, clues, [], "investigation", "fixed-seed");
+    assert.ok(selected.length >= 1);
+    assert.ok(selected.every((clueId) => clues.some((clue) => clue.id === clueId)));
+  }
+  assert.deepEqual(
+    chooseAiShares(
+      "quiet-witness",
+      clues,
+      clues.map((clue) => clue.id),
+      "discussion",
+      "fixed-seed",
+    ),
+    [],
+    "an AI cannot share a clue it already revealed",
+  );
+});
+
+test("AI timeline guesses are stable, complete, and accept only observed event cards and evidence", () => {
+  const events = LAST_LIGHT.timeline.map(({ id, text }) => ({ id, text }));
+  const evidence = LAST_LIGHT.clues
+    .slice(0, 4)
+    .map(({ title, text, time }) => ({ title, text, time }));
+  const first = chooseAiTimeline("archivist", events, evidence, "solo-test");
+  assert.deepEqual(chooseAiTimeline("archivist", events, evidence, "solo-test"), first);
+  assert.deepEqual([...first].sort(), LAST_LIGHT.timeline.map((event) => event.id).sort());
+});
+
+test("AI votes use public chat and never select themselves", () => {
+  const players = [
+    { id: "human", name: "Witness", kind: "human" },
+    { id: "bot-a", name: "Mara Voss", kind: "ai" },
+    { id: "bot-b", name: "Ivo Chen", kind: "ai" },
+    { id: "bot-c", name: "Nia Vale", kind: "ai" },
+  ];
+  const vote = chooseAiVote(
+    "archivist",
+    players,
+    [{ playerId: "human", text: "I suspect Ivo Chen may be the Distorter." }],
+    "bot-a",
+    "solo-vote",
+  );
+  assert.ok(players.some((player) => player.id === vote && player.id !== "bot-a"));
+});
+
+test("solo room creates three ready AI witnesses and preserves private information boundaries", async () => {
+  let saved;
+  const state = {
+    storage: {
+      get: async () => null,
+      put: async (_key, value) => {
+        saved = structuredClone(value);
+      },
+      setAlarm: async () => {},
+    },
+    getWebSockets: () => [],
+  };
+  const game = new GameRoom(state, {});
+  const created = await game.create("Solo Host", "SOLO42", "solo");
+  const session = await created.json();
+  let room = await game.load();
+
+  assert.equal(room.mode, "solo");
+  assert.equal(room.players.length, 4);
+  assert.equal(room.players.filter((player) => player.kind === "ai").length, 3);
+  assert.equal(
+    new Set(room.players.filter((player) => player.kind === "ai").map((player) => player.profileId))
+      .size,
+    3,
+  );
+  assert.ok(room.players.filter((player) => player.kind === "ai").every((player) => player.ready));
+  assert.ok(
+    room.players.filter((player) => player.kind === "ai").every((player) => player.token === null),
+  );
+
+  await game.action(session.token, { type: "ready", ready: true });
+  await game.action(session.token, { type: "start" });
+  room = await game.load();
+  assert.equal(room.phase, "investigation");
+  assert.equal(room.players.filter((player) => player.role === "distorter").length, 1);
+  assert.equal(
+    room.aiTasks.some((task) => task.type === "investigate"),
+    true,
+  );
+
+  const before = game.publicView(room, room.players[0]);
+  assert.equal(before.you.role, undefined);
+  assert.ok(before.players.every((player) => !Object.hasOwn(player, "role")));
+  await game.runAiInvestigation(room);
+  const after = game.publicView(room, room.players[0]);
+  const sharedIds = after.shared.map((clue) => clue.clueId);
+  const privateAiClues = room.players
+    .filter((player) => player.kind === "ai")
+    .flatMap((player) => player.clueIds.filter((clueId) => !sharedIds.includes(clueId)));
+  assert.ok(
+    privateAiClues.every((clueId) => !after.you.clues.some((clue) => clue.id === clueId)),
+    "an AI's unshared clue must stay out of the human's private journal",
+  );
+  assert.ok(after.players.every((player) => !Object.hasOwn(player, "clueIds")));
+  assert.equal(saved.mode, "solo");
+});
+
+test("a host can fill a mixed room with AI while a non-host cannot alter the lobby", async () => {
+  const state = {
+    storage: { get: async () => null, put: async () => {}, setAlarm: async () => {} },
+    getWebSockets: () => [],
+  };
+  const game = new GameRoom(state, {});
+  const created = await game.create("Host", "MIXED1");
+  const host = await created.json();
+  const joined = await game.join("Guest");
+  const guest = await joined.json();
+  assert.equal((await game.action(guest.token, { type: "add-ai" })).status, 400);
+  await game.action(host.token, { type: "add-ai" });
+  const room = await game.load();
+  assert.equal(room.players.length, 3);
+  assert.equal(room.players[2].kind, "ai");
+  assert.equal(room.players[2].ready, true);
 });

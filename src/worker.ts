@@ -8,6 +8,15 @@ import {
 import type { Role, RoomObject } from "./scenarios.ts";
 import { projectSharedEvidence } from "./projections.ts";
 import type { SharedEvidence } from "./projections.ts";
+import {
+  AI_PERSONALITIES,
+  chooseAiShares,
+  chooseAiTimeline,
+  chooseAiVote,
+  composeAiMessage,
+  getAiPersonality,
+} from "./ai.ts";
+import type { AiPersonalityId } from "./ai.ts";
 
 interface Env {
   ROOMS: DurableObjectNamespace;
@@ -15,10 +24,20 @@ interface Env {
 }
 type Phase = "lobby" | "investigation" | "discussion" | "timeline" | "voting" | "reveal";
 type ParticipantKind = "human" | "ai";
+type RoomMode = "private" | "solo";
+type AiTaskKind = "investigate" | "discuss" | "timeline" | "vote";
+interface AiTask {
+  id: string;
+  phase: Phase;
+  type: AiTaskKind;
+  at: number;
+}
 interface Player {
   id: string;
   name: string;
   kind: ParticipantKind;
+  profileId: AiPersonalityId | null;
+  aiActivity: string | null;
   token: string | null;
   role: Role | null;
   ready: boolean;
@@ -39,6 +58,7 @@ interface Event {
 interface Room {
   code: string;
   phase: Phase;
+  mode: RoomMode;
   players: Player[];
   created: number;
   deadline: number | null;
@@ -51,6 +71,7 @@ interface Room {
   shared: SharedEvidence[];
   chat: { id: string; playerId: string; name: string; text: string; at: number }[];
   distortUsed: boolean;
+  aiTasks: AiTask[];
   events: Event[];
 }
 
@@ -139,7 +160,14 @@ export default {
         const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
         const r = await stub.fetch(
           "https://room/internal/" + (url.pathname.endsWith("create") ? "create" : "join"),
-          { method: "POST", body: JSON.stringify({ name, code }) },
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name,
+              code,
+              mode: url.pathname.endsWith("create") && body.mode === "solo" ? "solo" : "private",
+            }),
+          },
         );
         return new Response(r.body, r);
       }
@@ -180,6 +208,14 @@ export class GameRoom {
           migrated = true;
         }
         for (const player of this.room.players) {
+          if (player.profileId === undefined) {
+            player.profileId = null;
+            migrated = true;
+          }
+          if (player.aiActivity === undefined) {
+            player.aiActivity = null;
+            migrated = true;
+          }
           if (!player.kind) {
             player.kind = "human";
             migrated = true;
@@ -209,6 +245,14 @@ export class GameRoom {
             }
             migrated = true;
           }
+        }
+        if (!this.room.mode) {
+          this.room.mode = "private";
+          migrated = true;
+        }
+        if (!Array.isArray(this.room.aiTasks)) {
+          this.room.aiTasks = [];
+          migrated = true;
         }
         if (migrated) await this.save();
       }
@@ -248,12 +292,15 @@ export class GameRoom {
         id: x.id,
         name: x.name,
         kind: x.kind,
+        personality: getAiPersonality(x.profileId)?.title || null,
+        activity: x.kind === "ai" ? x.aiActivity : null,
         ready: x.ready,
         connected: x.connected,
         isYou: x.id === p.id,
       })),
       deadline: r.deadline,
       version: r.version,
+      mode: r.mode || "private",
       voteCount: Object.keys(r.votes).length,
       scenario: { title: sc.title, location: sc.location },
       shared: projectSharedEvidence(r.shared, r.phase === "reveal"),
@@ -310,7 +357,11 @@ export class GameRoom {
       const b = await requestJson(req, 4096);
       if (!b) return json({ error: "Invalid request body." }, 400);
       return u.pathname.endsWith("create")
-        ? this.create(safeName(b.name), String(b.code || ""))
+        ? this.create(
+            safeName(b.name),
+            String(b.code || ""),
+            b.mode === "solo" ? "solo" : "private",
+          )
         : this.join(safeName(b.name));
     }
     const r = await this.load();
@@ -372,13 +423,15 @@ export class GameRoom {
     );
     return json({ ticket, expiresAt });
   }
-  async create(name: string, code: string): Promise<Response> {
+  async create(name: string, code: string, mode: RoomMode = "private"): Promise<Response> {
     if (await this.load()) return json({ error: "Room code collision. Try again." }, 409);
     const token = crypto.randomUUID() + crypto.randomUUID();
     const p: Player = {
       id: id(),
       name,
       kind: "human",
+      profileId: null,
+      aiActivity: null,
       token,
       role: null,
       ready: false,
@@ -393,6 +446,7 @@ export class GameRoom {
     this.room = {
       code,
       phase: "lobby",
+      mode,
       players: [p],
       created: Date.now(),
       deadline: null,
@@ -405,8 +459,15 @@ export class GameRoom {
       shared: [],
       chat: [],
       distortUsed: false,
+      aiTasks: [],
       events: [],
     };
+    if (mode === "solo") {
+      for (let count = 0; count < 3; count++) {
+        const bot = this.newAiPlayer(this.room);
+        if (bot) this.room.players.push(bot);
+      }
+    }
     await this.state.storage.setAlarm(Date.now() + ROOM_TTL);
     await this.save();
     return json({ code: this.room.code, token, playerId: p.id });
@@ -422,6 +483,8 @@ export class GameRoom {
       id: id(),
       name,
       kind: "human",
+      profileId: null,
+      aiActivity: null,
       token: crypto.randomUUID() + crypto.randomUUID(),
       role: null,
       ready: false,
@@ -439,12 +502,60 @@ export class GameRoom {
     this.broadcast();
     return json({ code: r.code, token: p.token, playerId: p.id });
   }
+  newAiPlayer(r: Room): Player | null {
+    const available = AI_PERSONALITIES.filter(
+      (profile) => !r.players.some((player) => player.profileId === profile.id),
+    );
+    if (!available.length) return null;
+    const random = new Uint32Array(1);
+    crypto.getRandomValues(random);
+    const profile = available[random[0] % available.length];
+    const name = r.players.some(
+      (player) => player.name.toLowerCase() === profile.name.toLowerCase(),
+    )
+      ? `${profile.name} · AI`
+      : profile.name;
+    return {
+      id: id(),
+      name,
+      kind: "ai",
+      profileId: profile.id,
+      aiActivity: "READY",
+      token: null,
+      role: null,
+      ready: true,
+      clueIds: [],
+      inspectedClueIds: [],
+      visitedHotspotIds: [],
+      timelineItemIds: [],
+      anomaly: null,
+      connected: true,
+      roomView: null,
+    };
+  }
   async action(token: string, a: any): Promise<Response> {
     const r = await this.load();
     const p = r?.players.find((x) => x.kind === "human" && x.token === token);
     if (!r || !p) return json({ error: "Session expired. Rejoin the room." }, 401);
     const fail = (message: string) => json({ error: message }, 400);
-    if (a.type === "ready") {
+    if (a.type === "add-ai") {
+      if (r.phase !== "lobby") return fail("AI witnesses can only join before the game starts.");
+      if (p.id !== r.players[0].id) return fail("Only the host can add an AI witness.");
+      if (r.players.length >= 8) return fail("The room is already full.");
+      const bot = this.newAiPlayer(r);
+      if (!bot) return fail("All eight AI personalities are already in this room.");
+      r.players.push(bot);
+      this.event(r, "ai_joined", { name: bot.name });
+    } else if (a.type === "remove-ai") {
+      if (r.phase !== "lobby") return fail("AI witnesses can only leave before the game starts.");
+      if (p.id !== r.players[0].id) return fail("Only the host can remove an AI witness.");
+      const index = r.players.findIndex(
+        (player) => player.id === a.playerId && player.kind === "ai",
+      );
+      if (index < 0) return fail("That AI witness is no longer in the room.");
+      const [removed] = r.players.splice(index, 1);
+      this.event(r, "ai_left", { name: removed.name });
+    } else if (a.type === "ready") {
       if (r.phase !== "lobby") return fail("The lobby is closed.");
       p.ready = !!a.ready;
     } else if (a.type === "start") {
@@ -456,52 +567,17 @@ export class GameRoom {
     } else if (a.type === "inspect") {
       if (!["investigation", "discussion"].includes(r.phase))
         return fail("The room can only be searched during the investigation.");
-      const object = scenarioFor(r).objects.find((x) => x.id === a.objectId);
-      if (!object) return fail("That object is not part of this room.");
-      p.visitedHotspotIds ??= [];
-      p.inspectedClueIds ??= [];
-      if (p.visitedHotspotIds.includes(object.id))
-        return fail("You have already searched this object.");
-      p.visitedHotspotIds.push(object.id);
-      const found = scenarioFor(r).clues.filter(
-        (clue) =>
-          clue.hotspotId === object.id &&
-          p.clueIds.includes(clue.id) &&
-          !p.inspectedClueIds.includes(clue.id),
-      );
-      p.inspectedClueIds.push(...found.map((clue) => clue.id));
-      this.event(r, "room_inspected", { by: p.name, object: object.label });
+      const result = this.inspectForPlayer(r, p, String(a.objectId || ""));
+      if ("error" in result) return fail(result.error);
       r.version++;
       await this.save();
       this.broadcast();
-      return json({
-        ok: true,
-        found: found.map((clue) => clue.title),
-        foundCount: found.length,
-        object: object.label,
-      });
+      return json({ ok: true, ...result });
     } else if (a.type === "share") {
       if (!["investigation", "discussion"].includes(r.phase))
         return fail("Evidence cannot be shared now.");
-      const c = scenarioFor(r).clues.find((x) => x.id === a.clueId && p.clueIds.includes(x.id));
-      if (!c) return fail("You do not hold that evidence.");
-      if (!p.inspectedClueIds?.includes(c.id))
-        return fail("Search the room and find this trace before sharing it.");
-      if (r.shared.some((x) => x.owner === p.id && x.clueId === c.id))
-        return fail("You already shared this evidence.");
-      r.shared.push({
-        id: id(),
-        owner: p.id,
-        ownerName: p.name,
-        clueId: c.id,
-        title: c.title,
-        text: c.text,
-        time: c.time,
-        kind: c.kind,
-        room: c.room,
-        displayTime: c.time,
-      });
-      this.event(r, "evidence_shared", { by: p.name, title: c.title });
+      const error = this.shareForPlayer(r, p, String(a.clueId || ""));
+      if (error) return fail(error);
     } else if (a.type === "message") {
       if (!["investigation", "discussion"].includes(r.phase))
         return fail("Discussion is closed for this phase.");
@@ -516,21 +592,13 @@ export class GameRoom {
       r.chat.push({ id: id(), playerId: p.id, name: p.name, text, at: Date.now() });
       r.chat = r.chat.slice(-100);
     } else if (a.type === "distort") {
-      if (p.role !== "distorter" || r.distortUsed) return fail("Your ability is unavailable.");
-      if (!["investigation", "discussion"].includes(r.phase))
-        return fail("Your ability is no longer available.");
-      if (a.direction !== "earlier" && a.direction !== "later")
-        return fail("Choose whether to shift the timestamp earlier or later.");
-      const item = r.shared.find((x) => x.id === a.sharedId);
-      if (!item) return fail("Choose a shared clue.");
-      const ability = scenarioFor(r).distorterAbility;
-      const [hh, mm] = String(item.displayTime).split(":").map(Number);
-      const delta = (a.direction === "earlier" ? -1 : 1) * ability.shiftMinutes;
-      const total = (hh * 60 + mm + delta + 1440) % 1440;
-      item.displayTime = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-      item.distorted = true;
-      r.distortUsed = true;
-      this.event(r, "signal", { text: "A shared record has shifted. The archive seal is broken." });
+      const error = this.distortForPlayer(
+        r,
+        p,
+        String(a.sharedId || ""),
+        a.direction === "earlier" ? "earlier" : a.direction === "later" ? "later" : "",
+      );
+      if (error) return fail(error);
     } else if (a.type === "advance") {
       if (p.id !== r.players[0].id) return fail("Only the room host can move the phase.");
       if (r.phase === "investigation") await this.setPhase(r, "discussion");
@@ -563,6 +631,78 @@ export class GameRoom {
     this.broadcast();
     return json({ ok: true });
   }
+  inspectForPlayer(
+    r: Room,
+    p: Player,
+    objectId: string,
+  ): { found: string[]; foundCount: number; object: string } | { error: string } {
+    const object = scenarioFor(r).objects.find((item) => item.id === objectId);
+    if (!object) return { error: "That object is not part of this room." };
+    p.visitedHotspotIds ??= [];
+    p.inspectedClueIds ??= [];
+    if (p.visitedHotspotIds.includes(object.id))
+      return { error: "You have already searched this object." };
+    p.visitedHotspotIds.push(object.id);
+    const found = scenarioFor(r).clues.filter(
+      (clue) =>
+        clue.hotspotId === object.id &&
+        p.clueIds.includes(clue.id) &&
+        !p.inspectedClueIds.includes(clue.id),
+    );
+    p.inspectedClueIds.push(...found.map((clue) => clue.id));
+    this.event(r, "room_inspected", { by: p.name, object: object.label });
+    return {
+      found: found.map((clue) => clue.title),
+      foundCount: found.length,
+      object: object.label,
+    };
+  }
+  shareForPlayer(r: Room, p: Player, clueId: string): string | null {
+    const clue = scenarioFor(r).clues.find(
+      (item) => item.id === clueId && p.clueIds.includes(item.id),
+    );
+    if (!clue) return "You do not hold that evidence.";
+    if (!p.inspectedClueIds?.includes(clue.id))
+      return "Search the room and find this trace before sharing it.";
+    if (r.shared.some((item) => item.owner === p.id && item.clueId === clue.id))
+      return "You already shared this evidence.";
+    r.shared.push({
+      id: id(),
+      owner: p.id,
+      ownerName: p.name,
+      clueId: clue.id,
+      title: clue.title,
+      text: clue.text,
+      time: clue.time,
+      kind: clue.kind,
+      room: clue.room,
+      displayTime: clue.time,
+    });
+    this.event(r, "evidence_shared", { by: p.name, title: clue.title });
+    return null;
+  }
+  distortForPlayer(
+    r: Room,
+    p: Player,
+    sharedId: string,
+    direction: "earlier" | "later" | "",
+  ): string | null {
+    if (p.role !== "distorter" || r.distortUsed) return "Your ability is unavailable.";
+    if (!["investigation", "discussion"].includes(r.phase))
+      return "Your ability is no longer available.";
+    if (!direction) return "Choose whether to shift the timestamp earlier or later.";
+    const item = r.shared.find((candidate) => candidate.id === sharedId);
+    if (!item) return "Choose a shared clue.";
+    const ability = scenarioFor(r).distorterAbility;
+    const [hours, minutes] = String(item.displayTime).split(":").map(Number);
+    const delta = (direction === "earlier" ? -1 : 1) * ability.shiftMinutes;
+    const total = (hours * 60 + minutes + delta + 1440) % 1440;
+    item.displayTime = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    item.distorted = true;
+    r.distortUsed = true;
+    this.event(r, "signal", { text: "A shared record has shifted. The archive seal is broken." });
+    return null;
+  }
   async start(r: Room) {
     const sc = scenarioFor(r);
     validateScenario(sc);
@@ -579,6 +719,7 @@ export class GameRoom {
       player.timelineItemIds = assignments.timelineItemsByPlayer[player.id];
       player.roomView = assignments.roomViewByPlayer[player.id];
       player.anomaly = assignments.anomalyIdByPlayer[player.id];
+      if (player.kind === "ai") player.aiActivity = "SEARCHING THE ROOM";
     }
     await this.setPhase(r, "investigation");
     this.event(r, "start", { scenario: sc.title });
@@ -586,14 +727,175 @@ export class GameRoom {
   async setPhase(r: Room, phase: Phase) {
     r.phase = phase;
     r.deadline = Date.now() + (DURATIONS[phase] || 0) * 1000;
-    if (r.deadline) await this.state.storage.setAlarm(r.deadline);
+    r.aiTasks = [];
+    const bots = r.players.filter((player) => player.kind === "ai");
+    if (bots.length) {
+      const now = Date.now();
+      if (phase === "investigation") {
+        r.aiTasks.push(
+          { id: id(), phase, type: "investigate", at: now + 1800 },
+          { id: id(), phase, type: "discuss", at: now + 12000 },
+        );
+      } else if (phase === "discussion") {
+        r.aiTasks.push({ id: id(), phase, type: "discuss", at: now + 1800 });
+      } else if (phase === "timeline") {
+        for (const player of bots) player.aiActivity = "RECONSTRUCTING THE SEQUENCE";
+        r.aiTasks.push({ id: id(), phase, type: "timeline", at: now + 1800 });
+      } else if (phase === "voting") {
+        for (const player of bots) player.aiActivity = "WEIGHING THE EVIDENCE";
+        r.aiTasks.push({ id: id(), phase, type: "vote", at: now + 1800 });
+      }
+    }
+    if (r.deadline) await this.scheduleNextAlarm(r);
     this.event(r, "phase", { phase });
   }
   async reveal(r: Room) {
     r.phase = "reveal";
     r.deadline = null;
+    r.aiTasks = [];
+    for (const player of r.players) if (player.kind === "ai") player.aiActivity = "CASE REVEALED";
     await this.state.storage.setAlarm(Date.now() + ROOM_TTL);
     this.event(r, "reveal", { text: "The room remembers." });
+  }
+  async scheduleNextAlarm(r: Room) {
+    const scheduled = [r.deadline, ...r.aiTasks.map((task) => task.at)].filter(
+      (value): value is number => typeof value === "number" && Number.isFinite(value),
+    );
+    if (scheduled.length) await this.state.storage.setAlarm(Math.min(...scheduled));
+  }
+  async runAiInvestigation(r: Room) {
+    const scenario = scenarioFor(r);
+    for (const bot of r.players.filter((player) => player.kind === "ai")) {
+      for (const object of scenario.objects) this.inspectForPlayer(r, bot, object.id);
+      const ownedClues = scenario.clues.filter((clue) => bot.inspectedClueIds.includes(clue.id));
+      const alreadyShared = r.shared
+        .filter((item) => item.owner === bot.id)
+        .map((item) => item.clueId);
+      const shares = chooseAiShares(
+        bot.profileId || "",
+        ownedClues,
+        alreadyShared,
+        "investigation",
+        `${r.seed}:${bot.id}`,
+      );
+      for (const clueId of shares) this.shareForPlayer(r, bot, clueId);
+      bot.aiActivity = "COMPARING PRIVATE TRACES";
+      const sharedTitles = r.shared
+        .filter((item) => item.owner === bot.id)
+        .map((item) => item.title);
+      const profile = getAiPersonality(bot.profileId);
+      const message = composeAiMessage(
+        bot.profileId || "",
+        "investigation",
+        sharedTitles,
+        profile && profile.shareRate >= 0.7 && bot.anomaly
+          ? scenario.anomalies.find((anomaly) => anomaly.id === bot.anomaly)?.title || null
+          : null,
+      );
+      this.postAiMessage(r, bot, message);
+    }
+  }
+  async runAiDiscussion(r: Room) {
+    const scenario = scenarioFor(r);
+    for (const bot of r.players.filter((player) => player.kind === "ai")) {
+      const ownedClues = scenario.clues.filter((clue) => bot.inspectedClueIds.includes(clue.id));
+      const alreadyShared = r.shared
+        .filter((item) => item.owner === bot.id)
+        .map((item) => item.clueId);
+      const shares = chooseAiShares(
+        bot.profileId || "",
+        ownedClues,
+        alreadyShared,
+        "discussion",
+        `${r.seed}:${bot.id}`,
+      );
+      for (const clueId of shares) this.shareForPlayer(r, bot, clueId);
+      if (bot.role === "distorter" && !r.distortUsed) {
+        const target = [...r.shared].reverse().find((item) => item.owner !== bot.id);
+        if (target) {
+          const direction =
+            bot.profileId === "contrarian" || bot.profileId === "provocateur" ? "earlier" : "later";
+          this.distortForPlayer(r, bot, target.id, direction);
+        }
+      }
+      bot.aiActivity = "TESTING THEORIES";
+      const sharedTitles = r.shared
+        .filter((item) => item.owner === bot.id)
+        .map((item) => item.title);
+      const profile = getAiPersonality(bot.profileId);
+      const message = composeAiMessage(
+        bot.profileId || "",
+        "discussion",
+        sharedTitles,
+        profile && profile.shareRate >= 0.65 && bot.anomaly
+          ? scenario.anomalies.find((anomaly) => anomaly.id === bot.anomaly)?.title || null
+          : null,
+      );
+      this.postAiMessage(r, bot, message);
+    }
+  }
+  runAiTimeline(r: Room) {
+    const scenario = scenarioFor(r);
+    for (const bot of r.players.filter((player) => player.kind === "ai")) {
+      const events = bot.timelineItemIds.flatMap((eventId) => {
+        const event = scenario.timeline.find((item) => item.id === eventId);
+        return event ? [{ id: event.id, text: event.text }] : [];
+      });
+      const evidence = scenario.clues
+        .filter((clue) => bot.inspectedClueIds.includes(clue.id))
+        .map((clue) => ({ title: clue.title, text: clue.text, time: clue.time }));
+      // Shared clues expose only their displayed time to a bot, just as they do to a human.
+      evidence.push(
+        ...r.shared.map((item) => ({
+          title: item.title,
+          text: item.text,
+          time: item.displayTime,
+        })),
+      );
+      bot.aiActivity = "RECONSTRUCTING THE SEQUENCE";
+      r.timelines[bot.id] = chooseAiTimeline(
+        bot.profileId || "",
+        events,
+        evidence,
+        `${r.seed}:${bot.id}`,
+      );
+      bot.aiActivity = "SEQUENCE SEALED";
+    }
+  }
+  async runAiVote(r: Room) {
+    const publicPlayers = r.players.map((player) => ({
+      id: player.id,
+      name: player.name,
+      kind: player.kind,
+    }));
+    const publicChat = r.chat.map((message) => ({
+      playerId: message.playerId,
+      text: message.text,
+    }));
+    for (const bot of r.players.filter((player) => player.kind === "ai")) {
+      if (r.votes[bot.id]) continue;
+      const targetId = chooseAiVote(
+        bot.profileId || "",
+        publicPlayers,
+        publicChat,
+        bot.id,
+        `${r.seed}:${bot.id}`,
+      );
+      if (targetId) r.votes[bot.id] = targetId;
+      bot.aiActivity = "BALLOT SEALED";
+    }
+    if (Object.keys(r.votes).length === r.players.length) await this.reveal(r);
+  }
+  postAiMessage(r: Room, bot: Player, text: string) {
+    r.chat.push({ id: id(), playerId: bot.id, name: bot.name, text, at: Date.now() });
+    r.chat = r.chat.slice(-100);
+  }
+  async runAiTask(r: Room, task: AiTask) {
+    if (task.phase !== r.phase) return;
+    if (task.type === "investigate") await this.runAiInvestigation(r);
+    else if (task.type === "discuss") await this.runAiDiscussion(r);
+    else if (task.type === "timeline") this.runAiTimeline(r);
+    else if (task.type === "vote") await this.runAiVote(r);
   }
   event(r: Room, type: string, data: Record<string, unknown>) {
     r.events.push({ id: id(), type, at: Date.now(), data });
@@ -641,13 +943,24 @@ export class GameRoom {
       for (const ws of this.state.getWebSockets()) ws.close(1000, "Room expired");
       return;
     }
-    if (!r.deadline || Date.now() < r.deadline) return;
-    if (r.phase === "investigation") await this.setPhase(r, "discussion");
-    else if (r.phase === "discussion") await this.setPhase(r, "timeline");
-    else if (r.phase === "timeline") await this.setPhase(r, "voting");
-    else if (r.phase === "voting") await this.reveal(r);
+    const now = Date.now();
+    if (r.deadline && now >= r.deadline) {
+      if (r.phase === "investigation") await this.setPhase(r, "discussion");
+      else if (r.phase === "discussion") await this.setPhase(r, "timeline");
+      else if (r.phase === "timeline") await this.setPhase(r, "voting");
+      else if (r.phase === "voting") await this.reveal(r);
+    } else {
+      const due = r.aiTasks.filter((task) => task.at <= now);
+      if (!due.length) {
+        await this.scheduleNextAlarm(r);
+        return;
+      }
+      r.aiTasks = r.aiTasks.filter((task) => task.at > now);
+      for (const task of due) await this.runAiTask(r, task);
+    }
     r.version++;
     await this.save();
     this.broadcast();
+    if ((r as Room).phase !== "reveal") await this.scheduleNextAlarm(r);
   }
 }

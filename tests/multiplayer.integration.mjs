@@ -280,8 +280,130 @@ try {
     finalStates.every((state) => state.result.correctTimelineIds.join() === correctOrder.join()),
   );
   assert.ok(finalStates.every((state) => state.result.distorter && state.you.role));
+
+  const soloCreateResponse = await fetch(`${baseUrl}/api/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Solo Witness", mode: "solo" }),
+  });
+  const soloPlayer = await soloCreateResponse.json();
+  assert.equal(soloCreateResponse.status, 200, JSON.stringify(soloPlayer));
+  const soloTicketResponse = await fetch(`${baseUrl}/socket/${soloPlayer.code}/ticket`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: soloPlayer.token }),
+  });
+  const soloTicket = await soloTicketResponse.json();
+  assert.equal(soloTicketResponse.status, 200, JSON.stringify(soloTicket));
+  const soloSocket = new WebSocket(
+    `ws://127.0.0.1:${port}/socket/${soloPlayer.code}/connect?ticket=${encodeURIComponent(soloTicket.ticket)}`,
+  );
+  sockets.push(soloSocket);
+  const soloObserver = observe(soloSocket);
+  const soloOpened = await new Promise((resolveOpen) => {
+    const timer = setTimeout(() => resolveOpen(false), 3_000);
+    soloSocket.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timer);
+        resolveOpen(true);
+      },
+      { once: true },
+    );
+    soloSocket.addEventListener(
+      "error",
+      () => {
+        clearTimeout(timer);
+        resolveOpen(false);
+      },
+      { once: true },
+    );
+  });
+  assert.equal(soloOpened, true, "solo player should receive a real Durable Object WebSocket");
+  const soloLobby = await stateWhen(
+    soloObserver,
+    (state) => state.phase === "lobby" && state.players.length === 4,
+    "solo lobby with three AI witnesses",
+  );
+  const botPlayers = soloLobby.players.filter((player) => player.kind === "ai");
+  assert.equal(botPlayers.length, 3);
+  assert.equal(new Set(botPlayers.map((player) => player.personality)).size, 3);
+  assert.ok(botPlayers.every((player) => player.ready && player.personality));
+  assert.ok(!Object.hasOwn(soloLobby.you, "role"));
+  assert.ok(soloLobby.players.every((player) => !Object.hasOwn(player, "role")));
+
+  async function soloAct(type, data = {}) {
+    const response = await fetch(`${baseUrl}/socket/${soloPlayer.code}/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: soloPlayer.token, action: { type, ...data } }),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200, `solo ${type}: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  await soloAct("ready", { ready: true });
+  await soloAct("start");
+  await stateWhen(soloObserver, (state) => state.phase === "investigation", "solo investigation");
+  const activeSolo = await stateWhen(
+    soloObserver,
+    (state) => state.shared.length > 0 && state.chat.length >= 3,
+    "AI witnesses inspect and share private evidence",
+  );
+  assert.ok(
+    activeSolo.players.filter((player) => player.kind === "ai").every((player) => player.activity),
+  );
+  assert.ok(activeSolo.shared.every((clue) => !Object.hasOwn(clue, "time")));
+
+  await soloAct("advance");
+  await stateWhen(soloObserver, (state) => state.phase === "discussion", "solo discussion");
+  await stateWhen(
+    soloObserver,
+    (state) =>
+      state.players
+        .filter((player) => player.kind === "ai")
+        .every((player) => player.activity === "TESTING THEORIES"),
+    "AI discussion responses",
+  );
+  await soloAct("advance");
+  await stateWhen(soloObserver, (state) => state.phase === "timeline", "solo timeline phase");
+  const aiTimelines = await stateWhen(
+    soloObserver,
+    (state) =>
+      state.players
+        .filter((player) => player.kind === "ai")
+        .every((player) => player.activity === "SEQUENCE SEALED"),
+    "AI timeline submissions",
+  );
+  assert.equal(
+    aiTimelines.timeline.submitted,
+    false,
+    "AI submissions must not expose the human's ballot",
+  );
+  await soloAct("timeline", { order: LAST_LIGHT.timeline.map((event) => event.id) });
+  await soloAct("advance");
+  await stateWhen(soloObserver, (state) => state.phase === "voting", "solo voting phase");
+  await stateWhen(
+    soloObserver,
+    (state) =>
+      state.players
+        .filter((player) => player.kind === "ai")
+        .every((player) => player.activity === "BALLOT SEALED"),
+    "AI secret votes",
+  );
+  const target = soloObserver.latest.players.find((player) => !player.isYou);
+  await soloAct("vote", { targetId: target.id });
+  const soloFinal = await stateWhen(
+    soloObserver,
+    (state) => state.phase === "reveal",
+    "solo final reveal",
+  );
+  assert.equal(Object.keys(soloFinal.result.votes).length, 4);
+  assert.equal(Object.keys(soloFinal.result.timelines).length, 4);
+  assert.ok(soloFinal.you.role);
   console.log(
-    "PASS: four independent clients completed a live Worker round with private evidence, a Distorter action, timeline submissions, voting, and reveal.",
+    "PASS: four independent clients completed a multiplayer round, and one solo client completed a full round with three server-run AI witnesses.",
   );
 } finally {
   for (const socket of sockets) socket.close();

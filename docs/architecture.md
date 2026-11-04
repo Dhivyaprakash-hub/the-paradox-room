@@ -21,6 +21,8 @@ flowchart LR
 
 Each room code maps to one Durable Object. That object is the authority for roster, readiness, phase, deadlines, assignments, submissions, shared clues, and votes. Its alarm advances timed phases and expires the room. The browser renders the state it receives; actions are sent back to the room server for validation.
 
+Solo practice creates one human and three ready AI witnesses in the same authoritative room object. Mixed rooms let the host add or remove AI witnesses while the lobby is open, preserving the 4–8 participant range. Eight rule-driven personality profiles provide different sharing, discussion, timeline, and voting behavior without external inference calls. Durable Object alarms batch AI actions by phase; bots have no browser session or client-side authority.
+
 ## Information boundaries
 
 | Data                         | During a round                                        | At reveal                                        |
@@ -44,8 +46,8 @@ The design protects against a modified client attempting to inspect other player
 
 - Rooms and their bearer sessions expire after 24 hours.
 - Chat is transient room state and capped at the most recent 100 messages.
-- There are no user accounts, analytics database, external AI calls, or paid inference dependencies.
-- There is one playable scenario and no matchmaking, AI participants, voice, reports, or moderation queue.
+- There are no user accounts, analytics database, external AI calls, or paid inference dependencies. AI witnesses only receive their own assigned evidence, inspected findings, clues already shared with the room, their own shuffled event cards, and public discussion. Their timeline solver does not receive canonical event times or hidden support relationships.
+- There is one playable scenario. There is no global matchmaking, voice, reporting flow, or moderation queue.
 
 ## Operational risks and next steps
 
