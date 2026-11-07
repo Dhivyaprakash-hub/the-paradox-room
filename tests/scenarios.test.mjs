@@ -407,6 +407,23 @@ test("rooms saved by the previous version receive a non-disruptive scenario/part
   assert.equal(saved.scenarioVersion, 1);
 });
 
+test("WebSocket messages must be bounded JSON objects", async () => {
+  const messages = [];
+  const game = new GameRoom({}, {});
+  const socket = { send: (message) => messages.push(JSON.parse(message)) };
+  const oversized = JSON.stringify({ type: "ping", padding: "é".repeat(4096) });
+  assert.ok(oversized.length < 8192 && Buffer.byteLength(oversized) > 8192);
+
+  for (const frame of ["null", "[]", "{", oversized, new ArrayBuffer(0)]) {
+    await game.webSocketMessage(socket, frame);
+  }
+  assert.deepEqual(messages, []);
+
+  await game.webSocketMessage(socket, '{"type":"ping"}');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].type, "pong");
+});
+
 test("the server rejects unsupported Distorter directions without changing evidence", async () => {
   const room = {
     code: "TEST42",

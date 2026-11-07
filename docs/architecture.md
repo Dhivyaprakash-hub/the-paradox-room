@@ -34,6 +34,8 @@ Each room code maps to one Durable Object. That object is the authority for rost
 
 Every WebSocket state message is projected for its recipient. A player token is a bearer credential held in that tab's session storage; it is exchanged in a same-origin POST for a short-lived, single-use WebSocket ticket so the long-lived token is not put in the WebSocket URL. The WebSocket ticket is consumed atomically in the room's SQLite storage. Cross-origin WebSocket upgrades are refused.
 
+The shared evidence projection omits the authoritative timestamp field before reveal. A client that records the displayed timestamp before it is shifted can compare the two displays. The projection does not conceal that observation.
+
 The design protects against a modified client attempting to inspect other players' clues or submit invalid actions. It does not protect a player's device from local compromise or browser extensions. Avoid putting secrets or personal information in room chat.
 
 ## Scenario consistency
