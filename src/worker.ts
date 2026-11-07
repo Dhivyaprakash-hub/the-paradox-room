@@ -62,6 +62,7 @@ const DURATIONS: Record<string, number> = {
 };
 const ROOM_TTL = 24 * 60 * 60 * 1000;
 const SOCKET_TICKET_TTL = 60_000;
+const MAX_ACTION_BYTES = 8192;
 const id = () => crypto.randomUUID();
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -322,7 +323,7 @@ export class GameRoom {
       return this.issueSocketTicket(String(b.token || ""));
     }
     if (u.pathname.endsWith("/action") && req.method === "POST") {
-      const b = await requestJson(req, 8192);
+      const b = await requestJson(req, MAX_ACTION_BYTES);
       if (!b) return json({ error: "Invalid request body." }, 400);
       return this.action(String(b.token || ""), b.action || {});
     }
@@ -600,18 +601,25 @@ export class GameRoom {
     r.events = r.events.slice(-100);
   }
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const playerId = ws.deserializeAttachment() as string;
-    let a: any;
+    if (
+      typeof message !== "string" ||
+      message.length > MAX_ACTION_BYTES ||
+      new TextEncoder().encode(message).byteLength > MAX_ACTION_BYTES
+    )
+      return;
+    let a: unknown;
     try {
-      a = JSON.parse(String(message));
+      a = JSON.parse(message);
     } catch {
       return;
     }
+    if (!a || typeof a !== "object" || Array.isArray(a) || !("type" in a)) return;
     if (a.type === "ping") {
       this.send(ws, "pong", { at: Date.now() });
       return;
     }
-    if (a.type === "action") {
+    if (a.type === "action" && "action" in a) {
+      const playerId = ws.deserializeAttachment() as string;
       const r = await this.load();
       const p = r?.players.find((x) => x.id === playerId);
       if (p?.token) await this.action(p.token, a.action || {});
