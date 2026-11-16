@@ -62,6 +62,7 @@ const DURATIONS: Record<string, number> = {
 };
 const ROOM_TTL = 24 * 60 * 60 * 1000;
 const SOCKET_TICKET_TTL = 60_000;
+const MAX_PENDING_SOCKET_TICKETS = 5;
 const MAX_ACTION_BYTES = 8192;
 const id = () => crypto.randomUUID();
 const json = (data: unknown, status = 200) =>
@@ -302,6 +303,7 @@ export class GameRoom {
   broadcast() {
     if (!this.room) return;
     for (const ws of this.state.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
       const p = this.room.players.find((x) => x.id === (ws.deserializeAttachment() as string));
       if (p) this.send(ws, "state", this.publicView(this.room, p));
     }
@@ -362,10 +364,22 @@ export class GameRoom {
     const p = r?.players.find((x) => x.kind === "human" && x.token === token);
     if (!r || !p) return json({ error: "Invalid guest session." }, 401);
     const ticket = crypto.randomUUID() + crypto.randomUUID();
-    const expiresAt = Date.now() + SOCKET_TICKET_TTL;
+    const now = Date.now();
+    const expiresAt = now + SOCKET_TICKET_TTL;
     const sql = this.state.storage.sql;
     if (!sql?.exec) return json({ error: "Secure connection setup is unavailable." }, 503);
-    sql.exec("DELETE FROM socket_tickets WHERE expires_at <= ?", Date.now());
+    sql.exec("DELETE FROM socket_tickets WHERE expires_at <= ?", now);
+    const { count } = sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM socket_tickets WHERE player_id = ?",
+        p.id,
+      )
+      .one();
+    if (count >= MAX_PENDING_SOCKET_TICKETS)
+      return json(
+        { error: "Too many pending connections. Wait a moment before reconnecting." },
+        429,
+      );
     sql.exec(
       "INSERT INTO socket_tickets (ticket, player_id, expires_at) VALUES (?, ?, ?)",
       ticket,
@@ -633,7 +647,12 @@ export class GameRoom {
     if (p) {
       p.connected = this.state
         .getWebSockets()
-        .some((socket) => socket.deserializeAttachment() === playerId);
+        .some(
+          (socket) =>
+            socket !== ws &&
+            socket.readyState === WebSocket.OPEN &&
+            socket.deserializeAttachment() === playerId,
+        );
       await this.save();
       this.broadcast();
     }
