@@ -102,6 +102,12 @@ const sockets = [];
 
 try {
   await waitForWorker(baseUrl, worker, () => processOutput);
+  const malformedJoin = await fetch(`${baseUrl}/api/join`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Witness", code: { toString: "ROOM42" } }),
+  });
+  assert.equal(malformedJoin.status, 400, "room codes must be strings");
+
   const createdResponse = await fetch(`${baseUrl}/api/create`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -109,6 +115,17 @@ try {
   });
   const created = await createdResponse.json();
   assert.equal(createdResponse.status, 200, JSON.stringify(created));
+
+  const malformedToken = await fetch(`${baseUrl}/socket/${created.code}/ticket`, {
+    method: "POST",
+    body: JSON.stringify({ token: [created.token] }),
+  });
+  assert.equal(malformedToken.status, 401, "guest tokens must be strings");
+  const malformedAction = await fetch(`${baseUrl}/socket/${created.code}/action`, {
+    method: "POST",
+    body: JSON.stringify({ token: { toString: created.token }, action: { type: "start" } }),
+  });
+  assert.equal(malformedAction.status, 401, "malformed credentials must not cause a server error");
 
   const players = [created];
   for (let index = 2; index <= 4; index++) {
