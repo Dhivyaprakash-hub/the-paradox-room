@@ -69,3 +69,7 @@ Scenario 01, **The Last Light**, remains the only playable scenario. The registr
 ## Local checks
 
 Run `npm run typecheck` for Worker types, `npm test` for scenario and privacy invariants, and `npm run test:integration` to start a local Worker and complete a full round with four independent WebSocket clients. The CI workflow also checks a Wrangler deployment dry run. These checks do not require a Cloudflare API token or paid service.
+
+## License
+
+The game source and its documentation are available under the [MIT License](LICENSE). Third-party dependencies retain their own terms.
