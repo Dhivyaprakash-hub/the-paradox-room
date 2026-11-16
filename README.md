@@ -18,6 +18,17 @@ Each witness explores a distinct version of the observatory, privately investiga
 
 ![One witness's investigation view with a private observatory variant and numbered inspectable objects](docs/images/investigation.webp)
 
+<details>
+<summary>See how a clue moves from private to shared evidence</summary>
+
+Two browsers inspected the same object during one local round. Each journal shows its own private trace. The second capture shows what the other witness received after the first witness shared a trace.
+
+![Two private journals from the same multiplayer round show different traces](docs/images/paradox-private-projections.webp)
+
+![The shared evidence panel receives the first witness’s trace](docs/images/paradox-shared-evidence.webp)
+
+</details>
+
 For an automated walkthrough, run `npm run test:integration` after installing dependencies. The test runs locally and plays a full round with four independent WebSocket clients.
 
 ## Run locally

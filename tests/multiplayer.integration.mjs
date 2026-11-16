@@ -141,22 +141,19 @@ try {
 
   const observers = [];
   const tickets = [];
-  for (const player of players) {
-    const ticketResponse = await fetch(`${baseUrl}/socket/${created.code}/ticket`, {
+  function ticketFor(player) {
+    return fetch(`${baseUrl}/socket/${created.code}/ticket`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: player.token }),
     });
-    const ticketData = await ticketResponse.json();
-    assert.equal(ticketResponse.status, 200, JSON.stringify(ticketData));
-    assert.ok(ticketData.ticket && !ticketData.ticket.includes(player.token));
-    tickets.push(ticketData.ticket);
+  }
+  async function connectWith(ticket) {
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/socket/${created.code}/connect?ticket=${encodeURIComponent(ticketData.ticket)}`,
+      `ws://127.0.0.1:${port}/socket/${created.code}/connect?ticket=${encodeURIComponent(ticket)}`,
     );
     sockets.push(socket);
     const observer = observe(socket);
-    observers.push(observer);
     await new Promise((resolveOpen, rejectOpen) => {
       socket.addEventListener("open", resolveOpen, { once: true });
       socket.addEventListener(
@@ -170,6 +167,15 @@ try {
       (state) => state.phase === "lobby" && state.players.length === 4,
       "four-player lobby state",
     );
+    return observer;
+  }
+  for (const player of players) {
+    const ticketResponse = await ticketFor(player);
+    const ticketData = await ticketResponse.json();
+    assert.equal(ticketResponse.status, 200, JSON.stringify(ticketData));
+    assert.ok(ticketData.ticket && !ticketData.ticket.includes(player.token));
+    tickets.push(ticketData.ticket);
+    observers.push(await connectWith(ticketData.ticket));
   }
 
   const replay = new WebSocket(
@@ -188,6 +194,22 @@ try {
   });
   assert.equal(replayOpened, false, "a consumed WebSocket ticket must not be reusable");
   replay.close();
+
+  const pendingTickets = [];
+  for (let i = 0; i < 5; i++) {
+    const response = await ticketFor(created);
+    assert.equal(response.status, 200);
+    pendingTickets.push((await response.json()).ticket);
+  }
+  assert.equal((await ticketFor(created)).status, 429, "unconsumed tickets must be bounded");
+
+  observers[0].socket.close();
+  const hostConnected = (state) =>
+    state.players.find((player) => player.id === created.playerId)?.connected;
+  await stateWhen(observers[1], (state) => hostConnected(state) === false, "host disconnect");
+  observers[0] = await connectWith(pendingTickets[0]);
+  await stateWhen(observers[1], (state) => hostConnected(state) === true, "host reconnect");
+  assert.equal((await ticketFor(created)).status, 200, "consuming a ticket must free capacity");
 
   async function act(player, type, data = {}) {
     const response = await fetch(`${baseUrl}/socket/${created.code}/action`, {
