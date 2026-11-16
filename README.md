@@ -1,5 +1,7 @@
 # THE PARADOX ROOM
 
+[![Verify](https://github.com/Dhivyaprakash-hub/the-paradox-room/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhivyaprakash-hub/the-paradox-room/actions/workflows/ci.yml)
+
 A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Object. The Durable Object for a room is the authority for membership, roles, private evidence, phase changes, and ballots. The browser calculates displayed scores from the server's reveal data. Static browser assets are served by the same Worker.
 
 ## Play
@@ -21,7 +23,7 @@ For an automated walkthrough, run `npm run test:integration` after installing de
 ## Run locally
 
 1. Install Node.js 22 or newer.
-2. Run `npm install`.
+2. Run `npm ci`.
 3. Run `npm run dev` and open the local address Wrangler prints.
 4. Use separate browser profiles or devices to create a room and join with its six-character code. Four players are required to start.
 
