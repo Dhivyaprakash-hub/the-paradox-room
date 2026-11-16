@@ -69,6 +69,7 @@ const json = (data: unknown, status = 200) =>
     status,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
+const stringField = (value: unknown) => (typeof value === "string" ? value : "");
 function safeName(s: unknown) {
   if (typeof s !== "string") return "";
   return s
@@ -132,7 +133,7 @@ export default {
         const name = safeName(body.name);
         if (name.length < 2)
           return json({ error: "Choose a name with at least 2 characters." }, 400);
-        let code = String(body.code || "")
+        let code = stringField(body.code)
           .toUpperCase()
           .replace(/[^A-Z0-9]/g, "");
         if (url.pathname === "/api/create") code = roomCode();
@@ -311,7 +312,7 @@ export class GameRoom {
       const b = await requestJson(req, 4096);
       if (!b) return json({ error: "Invalid request body." }, 400);
       return u.pathname.endsWith("create")
-        ? this.create(safeName(b.name), String(b.code || ""))
+        ? this.create(safeName(b.name), stringField(b.code))
         : this.join(safeName(b.name));
     }
     const r = await this.load();
@@ -320,12 +321,12 @@ export class GameRoom {
     if (u.pathname.endsWith("/ticket") && req.method === "POST") {
       const b = await requestJson(req, 4096);
       if (!b) return json({ error: "Invalid request body." }, 400);
-      return this.issueSocketTicket(String(b.token || ""));
+      return this.issueSocketTicket(stringField(b.token));
     }
     if (u.pathname.endsWith("/action") && req.method === "POST") {
       const b = await requestJson(req, MAX_ACTION_BYTES);
       if (!b) return json({ error: "Invalid request body." }, 400);
-      return this.action(String(b.token || ""), b.action || {});
+      return this.action(stringField(b.token), b.action || {});
     }
     if (u.pathname.endsWith("/connect") && req.headers.get("Upgrade") === "websocket") {
       const origin = req.headers.get("Origin");
@@ -506,7 +507,7 @@ export class GameRoom {
     } else if (a.type === "message") {
       if (!["investigation", "discussion"].includes(r.phase))
         return fail("Discussion is closed for this phase.");
-      const text = String(a.text || "")
+      const text = stringField(a.text)
         .replace(/[\u0000-\u001f]/g, " ")
         .trim()
         .slice(0, 280);
@@ -544,11 +545,11 @@ export class GameRoom {
       } else return fail("No phase to advance.");
     } else if (a.type === "timeline") {
       if (r.phase !== "timeline") return fail("Timeline is not open.");
-      const order = Array.isArray(a.order) ? a.order.map(String) : [];
+      const order = Array.isArray(a.order) ? a.order.map(stringField) : [];
       const valid = scenarioFor(r)
         .timeline.map((event) => event.id)
         .sort();
-      if (order.length !== valid.length || [...order].sort().join() != valid.join())
+      if (order.length !== valid.length || [...order].sort().some((id, i) => id !== valid[i]))
         return fail("Place each event exactly once.");
       r.timelines[p.id] = order;
     } else if (a.type === "vote") {
