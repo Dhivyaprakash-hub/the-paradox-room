@@ -83,12 +83,15 @@ const DURATIONS: Record<string, number> = {
 };
 const ROOM_TTL = 24 * 60 * 60 * 1000;
 const SOCKET_TICKET_TTL = 60_000;
+const MAX_PENDING_SOCKET_TICKETS = 5;
+const MAX_ACTION_BYTES = 8192;
 const id = () => crypto.randomUUID();
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
+const stringField = (value: unknown) => (typeof value === "string" ? value : "");
 function safeName(s: unknown) {
   if (typeof s !== "string") return "";
   return s
@@ -152,7 +155,7 @@ export default {
         const name = safeName(body.name);
         if (name.length < 2)
           return json({ error: "Choose a name with at least 2 characters." }, 400);
-        let code = String(body.code || "")
+        let code = stringField(body.code)
           .toUpperCase()
           .replace(/[^A-Z0-9]/g, "");
         if (url.pathname === "/api/create") code = roomCode();
@@ -347,6 +350,7 @@ export class GameRoom {
   broadcast() {
     if (!this.room) return;
     for (const ws of this.state.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
       const p = this.room.players.find((x) => x.id === (ws.deserializeAttachment() as string));
       if (p) this.send(ws, "state", this.publicView(this.room, p));
     }
@@ -357,11 +361,7 @@ export class GameRoom {
       const b = await requestJson(req, 4096);
       if (!b) return json({ error: "Invalid request body." }, 400);
       return u.pathname.endsWith("create")
-        ? this.create(
-            safeName(b.name),
-            String(b.code || ""),
-            b.mode === "solo" ? "solo" : "private",
-          )
+        ? this.create(safeName(b.name), stringField(b.code), b.mode === "solo" ? "solo" : "private")
         : this.join(safeName(b.name));
     }
     const r = await this.load();
@@ -370,12 +370,12 @@ export class GameRoom {
     if (u.pathname.endsWith("/ticket") && req.method === "POST") {
       const b = await requestJson(req, 4096);
       if (!b) return json({ error: "Invalid request body." }, 400);
-      return this.issueSocketTicket(String(b.token || ""));
+      return this.issueSocketTicket(stringField(b.token));
     }
     if (u.pathname.endsWith("/action") && req.method === "POST") {
-      const b = await requestJson(req, 8192);
+      const b = await requestJson(req, MAX_ACTION_BYTES);
       if (!b) return json({ error: "Invalid request body." }, 400);
-      return this.action(String(b.token || ""), b.action || {});
+      return this.action(stringField(b.token), b.action || {});
     }
     if (u.pathname.endsWith("/connect") && req.headers.get("Upgrade") === "websocket") {
       const origin = req.headers.get("Origin");
@@ -411,10 +411,22 @@ export class GameRoom {
     const p = r?.players.find((x) => x.kind === "human" && x.token === token);
     if (!r || !p) return json({ error: "Invalid guest session." }, 401);
     const ticket = crypto.randomUUID() + crypto.randomUUID();
-    const expiresAt = Date.now() + SOCKET_TICKET_TTL;
+    const now = Date.now();
+    const expiresAt = now + SOCKET_TICKET_TTL;
     const sql = this.state.storage.sql;
     if (!sql?.exec) return json({ error: "Secure connection setup is unavailable." }, 503);
-    sql.exec("DELETE FROM socket_tickets WHERE expires_at <= ?", Date.now());
+    sql.exec("DELETE FROM socket_tickets WHERE expires_at <= ?", now);
+    const { count } = sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM socket_tickets WHERE player_id = ?",
+        p.id,
+      )
+      .one();
+    if (count >= MAX_PENDING_SOCKET_TICKETS)
+      return json(
+        { error: "Too many pending connections. Wait a moment before reconnecting." },
+        429,
+      );
     sql.exec(
       "INSERT INTO socket_tickets (ticket, player_id, expires_at) VALUES (?, ?, ?)",
       ticket,
@@ -581,7 +593,7 @@ export class GameRoom {
     } else if (a.type === "message") {
       if (!["investigation", "discussion"].includes(r.phase))
         return fail("Discussion is closed for this phase.");
-      const text = String(a.text || "")
+      const text = stringField(a.text)
         .replace(/[\u0000-\u001f]/g, " ")
         .trim()
         .slice(0, 280);
@@ -611,11 +623,11 @@ export class GameRoom {
       } else return fail("No phase to advance.");
     } else if (a.type === "timeline") {
       if (r.phase !== "timeline") return fail("Timeline is not open.");
-      const order = Array.isArray(a.order) ? a.order.map(String) : [];
+      const order = Array.isArray(a.order) ? a.order.map(stringField) : [];
       const valid = scenarioFor(r)
         .timeline.map((event) => event.id)
         .sort();
-      if (order.length !== valid.length || [...order].sort().join() != valid.join())
+      if (order.length !== valid.length || [...order].sort().some((id, i) => id !== valid[i]))
         return fail("Place each event exactly once.");
       r.timelines[p.id] = order;
     } else if (a.type === "vote") {
@@ -902,18 +914,25 @@ export class GameRoom {
     r.events = r.events.slice(-100);
   }
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const playerId = ws.deserializeAttachment() as string;
-    let a: any;
+    if (
+      typeof message !== "string" ||
+      message.length > MAX_ACTION_BYTES ||
+      new TextEncoder().encode(message).byteLength > MAX_ACTION_BYTES
+    )
+      return;
+    let a: unknown;
     try {
-      a = JSON.parse(String(message));
+      a = JSON.parse(message);
     } catch {
       return;
     }
+    if (!a || typeof a !== "object" || Array.isArray(a) || !("type" in a)) return;
     if (a.type === "ping") {
       this.send(ws, "pong", { at: Date.now() });
       return;
     }
-    if (a.type === "action") {
+    if (a.type === "action" && "action" in a) {
+      const playerId = ws.deserializeAttachment() as string;
       const r = await this.load();
       const p = r?.players.find((x) => x.id === playerId);
       if (p?.token) await this.action(p.token, a.action || {});
@@ -926,7 +945,12 @@ export class GameRoom {
     if (p) {
       p.connected = this.state
         .getWebSockets()
-        .some((socket) => socket.deserializeAttachment() === playerId);
+        .some(
+          (socket) =>
+            socket !== ws &&
+            socket.readyState === WebSocket.OPEN &&
+            socket.deserializeAttachment() === playerId,
+        );
       await this.save();
       this.broadcast();
     }

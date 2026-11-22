@@ -1,6 +1,8 @@
 # THE PARADOX ROOM
 
-A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Object. The Durable Object for a room is the authority for membership, roles, private evidence, phase changes, ballots, and scores. Static browser assets are served by the same Worker.
+[![Verify](https://github.com/Dhivyaprakash-hub/the-paradox-room/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhivyaprakash-hub/the-paradox-room/actions/workflows/ci.yml)
+
+A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Object. The Durable Object for a room is the authority for membership, roles, private evidence, phase changes, and ballots. The browser calculates displayed scores from the server's reveal data. Static browser assets are served by the same Worker.
 
 ## Play
 
@@ -8,10 +10,31 @@ A guest-access multiplayer mystery built as a Cloudflare Worker and Durable Obje
 
 Each witness explores a distinct version of the observatory, privately investigates room objects, shares selected evidence, reconstructs the event timeline, and votes on who is distorting the truth. The full round ends with a reveal of the actual timeline and scoring. **Practice solo** fills the room with three server-run AI witnesses. Hosts can also add or remove AI witnesses in a private lobby to create a mixed group.
 
+### Walk through a round
+
+1. Create a room and join from three additional browser profiles or devices. Mark all four witnesses ready.
+2. Start the investigation. Compare two witness views, then inspect objects until you find a private clue.
+3. Share a clue, reconstruct the timeline, and vote. The reveal shows the canonical order and the ballots.
+
+![One witness's investigation view with a private observatory variant and numbered inspectable objects](docs/images/investigation.webp)
+
+<details>
+<summary>See how a clue moves from private to shared evidence</summary>
+
+Two browsers inspected the same object during one local round. Each journal shows its own private trace. The second capture shows what the other witness received after the first witness shared a trace.
+
+![Two private journals from the same multiplayer round show different traces](docs/images/paradox-private-projections.webp)
+
+![The shared evidence panel receives the first witness’s trace](docs/images/paradox-shared-evidence.webp)
+
+</details>
+
+For an automated walkthrough, run `npm run test:integration` after installing dependencies. The test runs locally and plays a full round with four independent WebSocket clients.
+
 ## Run locally
 
 1. Install Node.js 22 or newer.
-2. Run `npm install`.
+2. Run `npm ci`.
 3. Run `npm run dev` and open the local address Wrangler prints.
 4. Use separate browser profiles or devices to create a room and join with its six-character code. Four players are required to start.
 
@@ -46,3 +69,7 @@ Scenario 01, **The Last Light**, is the first playable scenario. Its fixed truth
 ## Local checks
 
 Run `npm run typecheck` for Worker types, `npm test` for scenario, AI, and privacy invariants, `npm run test:integration` to complete a full round with four independent WebSocket clients and a solo round with three server-run AI witnesses, and `npm run format:check` for formatting. The CI workflow also checks a Wrangler deployment dry run. These checks do not require a Cloudflare API token or paid service.
+
+## License
+
+The game source and its documentation are available under the [MIT License](LICENSE). Third-party dependencies retain their own terms.
