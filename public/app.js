@@ -12,6 +12,7 @@ const app = {
   modal: null,
   selectedVote: null,
   timelineDraft: null,
+  currentZone: null,
   phaseTick: null,
 };
 const esc = (s) =>
@@ -202,6 +203,7 @@ function render() {
   if (s.phase === "timeline" && currentTimeline.length) app.timelineDraft = currentTimeline;
   if (s.phase !== "timeline") app.timelineDraft = null;
   root.innerHTML = `<header class="gamebar"><div class="game-brand"><strong>P<span style="color:var(--blue)">·</span>R</strong><span>THE PARADOX ROOM</span></div><div style="display:flex;gap:8px;align-items:center">${s.mode === "solo" ? '<span class="mode-tag">SOLO PRACTICE</span>' : ""}<span class="phase-tag">${esc(s.phase.toUpperCase())}</span><button class="room-tag" id="copy-code">ROOM ${esc(s.code)} ⧉</button></div></header><div class="gamehead"><div><div class="eyebrow"><i></i> ${esc(s.scenario.location.toUpperCase())}</div><h1>${esc(s.scenario.title)}<span style="color:var(--violet)">.</span></h1><p>${phaseCopy(s.phase)}</p></div><button class="text-button" id="rules-inline">FIELD GUIDE ↗</button></div>${s.phase === "reveal" ? revealHtml(s) : `<div class="game-layout"><div class="main-column">${s.phase === "lobby" ? lobbyHtml(s) : roundHtml(s)}</div><aside class="side-panel">${sideHtml(s)}</aside></div>`}`;
+  if (s.phase === "investigation" && app.currentZone) focusRoomZone(app.currentZone);
   const chatInput = $("#chat-input", root);
   if (chatInput) {
     chatInput.value = draft;
@@ -219,13 +221,23 @@ function render() {
     const b = e.target.closest("[data-action]");
     if (!b) return;
     const { action: a, ...d } = b.dataset;
+    if (a === "move") {
+      app.currentZone = d.zone;
+      focusRoomZone(d.zone);
+    }
     if (a === "ready") action("ready", { ready: b.dataset.ready !== "true" });
     if (a === "start") action("start");
     if (a === "add-ai") action("add-ai");
     if (a === "remove-ai") action("remove-ai", { playerId: d.player });
     if (a === "advance") action("advance");
     if (a === "share") action("share", { clueId: d.clue });
-    if (a === "inspect") action("inspect", { objectId: d.object });
+    if (a === "inspect") {
+      if (d.zone) {
+        app.currentZone = d.zone;
+        focusRoomZone(d.zone);
+      }
+      action("inspect", { objectId: d.object });
+    }
     if (a === "distort") action("distort", { sharedId: d.shared, direction: d.direction });
     if (a === "vote") {
       app.selectedVote = d.target;
@@ -362,7 +374,26 @@ function explorationHtml(s) {
   const you = s.you,
     room = you.room || {},
     objects = room.objects || [];
-  return `<section class="exploration ${esc(room.look || "")}" aria-label="Your explorable version of the observatory"><div class="explore-top"><div><div class="clue-top"><span>LIVE ROOM / PRIVATE VIEW</span><span>${you.evidenceFoundCount || 0} / ${you.evidenceTotal || 0} TRACES FOUND</span></div><h3>${esc(room.title || "The observatory")}</h3><p>${esc(room.text || "")}</p></div><span class="room-state"><i></i> ${esc(room.look || "ROOM")}</span></div><p class="search-hint">Search the room while everyone is here. Glowing markers are interactive; the same place may look different to other witnesses.</p><div class="room-canvas"><img src="/room.svg" alt="A dark observatory with a star dome, archive desk, power panel and north stairwell"><div class="room-vignette"></div><div class="room-variant" aria-hidden="true"></div>${you.anomaly ? '<div class="anomaly-aura" aria-hidden="true"></div>' : ""}${objects.map((o, i) => `<button class="hotspot ${o.visited ? "visited" : ""}" style="left:${o.x}%;top:${o.y}%" data-action="inspect" data-object="${esc(o.id)}" aria-label="Inspect ${esc(o.label)} in ${esc(o.zone)}" title="${esc(o.description)}"><span>${String(i + 1).padStart(2, "0")}</span><b>${esc(o.label)}</b></button>`).join("")}<div class="scene-caption"><span>ORPHEUM OBSERVATORY</span><span>YOUR WITNESS VIEW / ${esc(room.id || "—").toUpperCase()}</span></div></div><div class="object-index"><div class="panel-title"><span>ROOM INDEX / SEARCH OBJECTS</span><small>YOUR VERSION ONLY</small></div><div class="object-buttons">${objects.map((o) => `<button class="object-button ${o.visited ? "visited" : ""}" data-action="inspect" data-object="${esc(o.id)}" ${o.visited ? "disabled" : ""}><span>${esc(o.zone)}</span><b>${esc(o.label)}</b><i>${o.visited ? "SEARCHED" : "INSPECT ↗"}</i></button>`).join("")}</div></div></section><section class="panel"><div class="panel-title"><span>YOUR EVIDENCE JOURNAL</span><small>${you.clues.length} FOUND / ${you.evidenceTotal || 0} ASSIGNED</small></div>${you.clues.length ? `<div class="clue-grid">${you.clues.map((c) => clueCard(c, true)).join("")}</div>` : '<div class="empty">No trace recovered yet. Explore the room and inspect the glowing objects. Every player starts with different private leads.</div>'}${you.anomaly ? `<article class="clue anomaly"><div class="clue-top"><span>UNSTABLE MEMORY · PRIVATE</span><span>!</span></div><h4>${esc(you.anomaly.title)}</h4><p>${esc(you.anomaly.text)}</p><div class="clue-foot"><span>ENVIRONMENTAL ANOMALY</span><span class="chip">INDEPENDENT OF THE DISTORTER</span></div></article>` : ""}</section>`;
+  const zones = [...new Set(objects.map((o) => o.zone))];
+  if (!app.currentZone || !zones.includes(app.currentZone)) app.currentZone = zones[0];
+  return `<section class="exploration ${esc(room.look || "")}" aria-label="Your explorable version of the observatory"><div class="explore-top"><div><div class="clue-top"><span>YOUR ROOM / PRIVATE VIEW</span><span>${you.evidenceFoundCount || 0} / ${you.evidenceTotal || 0} TRACES FOUND</span></div><h3>${esc(room.title || "The observatory")}</h3><p>${esc(room.text || "")}</p></div><span class="room-state"><i></i> ${esc(room.look || "ROOM")}</span></div><p class="search-hint">Choose a room area, look for glowing objects, and inspect them. Each witness has a different version of this place.</p><nav class="zone-nav" aria-label="Move between room areas">${zones.map((zone) => `<button class="zone-tab ${zone === app.currentZone ? "active" : ""}" data-action="move" data-zone="${esc(zone)}">${esc(zone)}<span>${objects.filter((o) => o.zone === zone).length} objects</span></button>`).join("")}</nav><div class="room-canvas"><div class="room-scene"><img src="/room.svg" alt="A dark observatory with a star dome, archive desk, power panel and north stairwell"><div class="room-vignette"></div><div class="room-variant" aria-hidden="true"></div>${you.anomaly ? '<div class="anomaly-aura" aria-hidden="true"></div>' : ""}${objects.map((o, i) => `<button class="hotspot ${o.visited ? "visited" : ""}" style="left:${o.x}%;top:${o.y}%" data-action="inspect" data-object="${esc(o.id)}" data-zone="${esc(o.zone)}" aria-label="Inspect ${esc(o.label)} in ${esc(o.zone)}" title="${esc(o.description)}"><span>${String(i + 1).padStart(2, "0")}</span><b>${esc(o.label)}</b></button>`).join("")}</div><div class="scene-caption"><span>ORPHEUM OBSERVATORY</span><span>YOUR WITNESS VIEW / ${esc(room.id || "—").toUpperCase()}</span></div></div><div class="object-index"><div class="panel-title"><span>OBJECTS IN YOUR VERSION</span><small>INSPECTED OBJECTS STAY MARKED</small></div><div class="object-buttons">${objects.map((o) => `<button class="object-button ${o.visited ? "visited" : ""}" data-action="inspect" data-object="${esc(o.id)}" data-zone="${esc(o.zone)}" ${o.visited ? "disabled" : ""}><span>${esc(o.zone)}</span><b>${esc(o.label)}</b><i>${o.visited ? "SEARCHED" : "INSPECT ↗"}</i></button>`).join("")}</div></div></section><section class="panel"><div class="panel-title"><span>YOUR EVIDENCE JOURNAL</span><small>${you.clues.length} FOUND / ${you.evidenceTotal || 0} ASSIGNED</small></div>${you.clues.length ? `<div class="clue-grid">${you.clues.map((c) => clueCard(c, true)).join("")}</div>` : '<div class="empty">No trace recovered yet. Tap a glowing object to search it. When a clue appears here, use its Share button if the group should see it.</div>'}${you.anomaly ? `<article class="clue anomaly"><div class="clue-top"><span>UNSTABLE MEMORY · PRIVATE</span><span>!</span></div><h4>${esc(you.anomaly.title)}</h4><p>${esc(you.anomaly.text)}</p><div class="clue-foot"><span>ENVIRONMENTAL ANOMALY</span><span class="chip">INDEPENDENT OF THE DISTORTER</span></div></article>` : ""}</section>`;
+}
+function focusRoomZone(zone) {
+  const canvas = $(".room-canvas"),
+    scene = $(".room-scene", canvas);
+  if (!canvas || !scene) return;
+  const hotspots = $$(".hotspot", scene).filter((button) => button.dataset.zone === zone);
+  if (!hotspots.length) return;
+  const bounds = canvas.getBoundingClientRect();
+  const scale = matchMedia("(max-width: 700px)").matches ? 1.22 : 1.42;
+  const centerX = hotspots.reduce((sum, item) => sum + item.offsetLeft, 0) / hotspots.length;
+  const centerY = hotspots.reduce((sum, item) => sum + item.offsetTop, 0) / hotspots.length;
+  const dx = bounds.width / 2 - centerX * scale;
+  const dy = bounds.height / 2 - centerY * scale;
+  scene.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+  $$(".zone-tab").forEach((button) =>
+    button.classList.toggle("active", button.dataset.zone === zone),
+  );
 }
 function clueCard(c, share) {
   const shared = app.state.shared.some((x) => x.owner === app.playerId && x.clueId === c.id);
@@ -370,7 +401,47 @@ function clueCard(c, share) {
 }
 function sideHtml(s) {
   const self = s.players.find((p) => p.isYou);
-  return `<div class="timer-wrap"><span>UNTIL ROOM SHIFTS</span><div class="timer" id="timer">—:—</div></div><h3>${s.phase === "lobby" ? "The threshold" : s.phase === "reveal" ? "Memory recovered" : phaseCopy(s.phase).split(".")[0]}</h3><p>${s.phase === "lobby" ? (s.mode === "solo" ? "Your three AI witnesses are ready. Mark yourself ready, then open the door." : "Invite witnesses or add AI companions. The room needs four before the door seals.") : s.phase === "investigation" ? "Search glowing objects in your room. Finding a trace adds it to your private journal; share only what helps the group." : s.phase === "discussion" ? "Compare the public traces and use the remaining time to test your theory." : s.phase === "timeline" ? `Place all ${s.timeline.items.length} events. You may update your order until the timer ends.` : "Your vote is confidential. The room opens only after all ballots are sealed."}</p>${s.phase === "lobby" ? `<div class="event">GUEST SESSION · NO ACCOUNT REQUIRED<br>${s.mode === "solo" ? "AI participants run inside the game server; no outside AI service is used." : "Share the room code with friends or add AI seats."}</div>` : `<div class="event"><b>${s.shared.length}</b> shared trace${s.shared.length === 1 ? "" : "s"} · <b>${s.phase === "voting" ? s.voteCount : s.players.filter((x) => x.ready).length}/${s.players.length}</b> ${s.phase === "voting" ? "votes sealed" : "ready"}</div>`}${s.you.ability ? `<div class="ability"><div class="label">DISTORTER / ONE USE ${s.you.ability.used ? "· SPENT" : "· READY"}</div><p>${esc(s.you.ability.text)}</p>${s.you.ability.used ? '<span class="chip">USED</span>' : ""}</div>` : ""}${s.phase === "investigation" || s.phase === "discussion" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">${s.phase === "investigation" ? "MOVE TO DISCUSSION" : "OPEN TIMELINE"} ↗</button></div>` : ""}${s.phase === "timeline" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">OPEN SECRET VOTE ↗</button></div>` : ""}${s.phase === "voting" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">CLOSE BALLOTS ↗</button></div>` : ""}<div style="margin-top:14px"><button class="link-button" data-action="leave">Leave room</button></div>`;
+  const ready = self?.ready;
+  const guide =
+    s.phase === "lobby"
+      ? {
+          title: "Get the room ready",
+          text:
+            s.mode === "solo"
+              ? "You already have three AI witnesses. Mark yourself ready, then begin when the button becomes available."
+              : "Invite friends with the room code or add AI seats. Everyone marks ready before the host begins.",
+          step: ready
+            ? self?.id === s.players[0]?.id
+              ? "You are ready · choose Begin when everyone is ready"
+              : "You are ready · wait for the host to begin"
+            : "Step 1 · Mark yourself ready",
+        }
+      : s.phase === "investigation"
+        ? {
+            title: "Search, then share",
+            text: "Move between the room areas. Tap a glowing marker to inspect it. Found evidence goes into Your Evidence Journal; choose Share on a clue to show it to everyone.",
+            step: `${s.you.clues.length} private clue${s.you.clues.length === 1 ? "" : "s"} found · ${s.shared.length} shared with the group`,
+          }
+        : s.phase === "discussion"
+          ? {
+              title: "Compare what you found",
+              text: "Read the shared traces, then use the discussion box to explain what you saw or ask another witness. Conflicting memories alone do not prove anyone is the Distorter.",
+              step: "Next · Agree on an event order, then open the timeline",
+            }
+          : s.phase === "timeline"
+            ? {
+                title: "Rebuild the sequence",
+                text: "For each event, choose where it belongs: first, second, third, or fourth. Seal your order when it feels right; you can revise before time runs out.",
+                step: `${s.timeline?.submitted ? "Your order is sealed · you can update it" : "Choose a position for every event"}`,
+              }
+            : {
+                title: "Cast a private vote",
+                text: "Choose who you think collaborated with the room, then seal your vote. No one is removed; the answer and real timeline appear after the reveal.",
+                step: s.you.voted
+                  ? "Your vote is sealed · waiting for the reveal"
+                  : "Choose a witness, then seal your vote",
+              };
+  return `<div class="timer-wrap"><span>UNTIL ROOM SHIFTS</span><div class="timer" id="timer">—:—</div></div><div class="next-step"><div class="next-step-label">START HERE · ${s.phase === "lobby" ? "LOBBY" : s.phase.toUpperCase()}</div><h3>${guide.title}</h3><p>${guide.text}</p><div class="next-step-action">${guide.step}</div><div class="round-path"><span class="${["lobby", "investigation"].includes(s.phase) ? "current" : ""}">SEARCH</span><i>→</i><span class="${s.phase === "discussion" ? "current" : ""}">SHARE</span><i>→</i><span class="${s.phase === "timeline" ? "current" : ""}">ORDER</span><i>→</i><span class="${s.phase === "voting" ? "current" : ""}">VOTE</span><i>→</i><span>REVEAL</span></div></div>${s.phase === "lobby" ? `<div class="event">GUEST SESSION · NO ACCOUNT REQUIRED<br>${s.mode === "solo" ? "AI participants run on the game server. No outside AI service is used." : "Room code: share it with friends, or add AI seats."}</div>` : `<div class="event"><b>${s.shared.length}</b> shared trace${s.shared.length === 1 ? "" : "s"} · <b>${s.phase === "voting" ? s.voteCount : s.players.filter((x) => x.ready).length}/${s.players.length}</b> ${s.phase === "voting" ? "votes sealed" : "ready"}</div>`}${s.you.ability ? `<div class="ability"><div class="label">DISTORTER / ONE USE ${s.you.ability.used ? "· SPENT" : "· READY"}</div><p>${esc(s.you.ability.text)}</p>${s.you.ability.used ? '<span class="chip">USED</span>' : ""}</div>` : ""}${s.phase === "investigation" || s.phase === "discussion" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">${s.phase === "investigation" ? "MOVE TO DISCUSSION" : "OPEN TIMELINE"} ↗</button></div>` : ""}${s.phase === "timeline" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">OPEN SECRET VOTE ↗</button></div>` : ""}${s.phase === "voting" ? `<div style="margin-top:14px"><button class="secondary btn-small" data-action="advance">CLOSE BALLOTS ↗</button></div>` : ""}<div style="margin-top:14px"><button class="link-button" data-action="leave">Leave room</button></div>`;
 }
 function startTimer(deadline) {
   clearInterval(app.phaseTick);
@@ -429,6 +500,10 @@ function revealHtml(s) {
 }
 const qp = new URLSearchParams(location.search),
   code = qp.get("room");
+window.addEventListener("resize", () => {
+  if (app.currentZone && app.state?.phase === "investigation")
+    requestAnimationFrame(() => focusRoomZone(app.currentZone));
+});
 if (code) {
   const d = JSON.parse(sessionStorage.getItem(`paradox:${code}`) || "null");
   if (d) enter(d);
